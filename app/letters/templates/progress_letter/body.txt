@@ -1,0 +1,8 @@
+Progress update
+
+Patient reference: {patient_label}
+
+{body}
+
+Kind regards,
+Back to Ease Physiotherapy

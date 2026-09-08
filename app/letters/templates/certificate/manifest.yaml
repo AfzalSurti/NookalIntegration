@@ -1,0 +1,6 @@
+document_type: certificate
+required_fields:
+  - patient_label
+  - certificate_type
+  - statement
+optional_fields: []

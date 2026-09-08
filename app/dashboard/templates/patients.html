@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Patients — Back to Ease{% endblock %}
+{% block content %}
+<h1>Patients</h1>
+<form method="get" class="row panel">
+  <div>
+    <label for="suburb">Suburb</label>
+    <input id="suburb" name="suburb" value="{{ suburb }}">
+  </div>
+  <button type="submit">Search</button>
+</form>
+<table>
+  <thead>
+    <tr><th>ID</th><th>Name</th><th>Suburb</th><th>Age</th><th>Referrer</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for p in results.items %}
+    <tr>
+      <td>{{ p.patient_id }}</td>
+      <td>{{ p.display_name or "—" }}</td>
+      <td>{{ p.suburb or "—" }}</td>
+      <td>{{ p.age if p.age is not none else "—" }}</td>
+      <td>{{ p.referrer_id or "—" }}</td>
+      <td><a href="/patients/{{ p.patient_id }}">View</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6">No matches</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

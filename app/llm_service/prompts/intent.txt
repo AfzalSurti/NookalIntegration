@@ -1,0 +1,14 @@
+Classify the following patient WhatsApp message into exactly one of:
+check_appointment, create_appointment, reschedule_appointment,
+cancel_appointment, request_certificate, other.
+
+If the message is ambiguous or doesn't clearly match one intent, classify
+as "other" — do not guess the closest one.
+
+Extract only what's explicitly stated (date/time mentioned, appointment
+reference if given). Do not infer missing details.
+
+Message: "{patient_message}"
+
+Output strict JSON only, no markdown:
+{{"intent":"...","extracted_fields":{{}},"confidence":"high"|"low"}}

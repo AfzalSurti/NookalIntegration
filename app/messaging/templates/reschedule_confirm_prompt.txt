@@ -1,0 +1,1 @@
+Hi {name}, you asked to move your {current_slot} appointment to {new_slot}. Reply YES to confirm, or call the clinic if that's not right.

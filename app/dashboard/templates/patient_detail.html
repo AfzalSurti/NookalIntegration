@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Patient {{ patient.patient_id }} — Back to Ease{% endblock %}
+{% block content %}
+<h1>Patient {{ patient.patient_id }}</h1>
+<div class="panel">
+  <p>Name: {{ patient.display_name or "—" }}</p>
+  <p>Suburb: {{ patient.suburb or "—" }}</p>
+  <p>Age: {{ patient.age if patient.age is not none else "—" }}</p>
+  <p>Phone: {{ patient.phone or "—" }}</p>
+  <p>Email: {{ patient.email or "—" }}</p>
+  <p>Referrer: {{ patient.referrer_id or "—" }}</p>
+</div>
+<h2>Appointments</h2>
+<table>
+  <thead><tr><th>ID</th><th>Starts</th><th>Status</th><th>Practitioner</th></tr></thead>
+  <tbody>
+  {% for a in patient.appointments %}
+    <tr>
+      <td>{{ a.appointment_id }}</td>
+      <td>{{ a.starts_at }}</td>
+      <td>{{ a.status or "—" }}</td>
+      <td>{{ a.practitioner_id or "—" }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4">None</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

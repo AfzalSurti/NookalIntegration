@@ -1,0 +1,49 @@
+# Non-secret runtime config. Secrets live in config/.env (never committed).
+
+paths:
+  # Override via env AUTOMATION_HOME when deploying to the clinic Mac.
+  # Local default: repo-relative.
+  audit_dir: logs/audit
+  app_log_dir: logs/app
+  kill_switch_file: config/KILL_SWITCH
+  working_dir: data/working
+  sent_log_dir: data/working/sent
+
+nookal:
+  base_url: https://api.nookal.com  # confirm against current docs
+  # Leave null until docs confirm the real limit; client will use a conservative default.
+  requests_per_second: 2
+  max_retries: 4
+  timeout_seconds: 30
+
+llm:
+  base_url: http://127.0.0.1:11434/v1
+  model: qwen3:8b
+  temperature: 0.2
+  timeout_seconds: 120
+  intent_confidence_threshold: high  # only "high" auto-routes; low/other → human
+
+messaging:
+  # Adapters enabled once credentials are provisioned.
+  channels:
+    whatsapp: false
+    sms: false
+    email: false
+  max_retries: 3
+
+approval:
+  store_path: data/working/tasks.jsonl
+
+audit:
+  # Reject metadata values longer than this (chars) — free-text dump guard.
+  max_metadata_value_length: 200
+  forbidden_metadata_keys:
+    - patient_name
+    - name
+    - body
+    - content
+    - message
+    - clinical_notes
+    - diagnosis
+    - email_body
+    - rendered_content

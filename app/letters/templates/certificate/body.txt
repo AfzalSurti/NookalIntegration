@@ -1,0 +1,8 @@
+CERTIFICATE
+
+Patient reference: {patient_label}
+Type: {certificate_type}
+
+{statement}
+
+— Back to Ease Physiotherapy

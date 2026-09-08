@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Documents — Back to Ease{% endblock %}
+{% block content %}
+<h1>Document Review</h1>
+<table>
+  <thead><tr><th>ID</th><th>Type</th><th>Patient</th><th>Template</th><th>Letter/Cert</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for t in tasks %}
+    <tr>
+      <td>{{ t.id[:8] }}…</td>
+      <td>{{ t.type }}</td>
+      <td>{{ t.patient_id }}</td>
+      <td>{{ t.safe_draft.template_id or "—" }}</td>
+      <td>{{ t.safe_draft.letter_type or t.safe_draft.certificate_type or "—" }}</td>
+      <td>{{ t.status }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6">No document tasks pending</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

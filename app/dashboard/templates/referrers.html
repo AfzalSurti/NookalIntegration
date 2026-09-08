@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Referrer Conflicts — Back to Ease{% endblock %}
+{% block content %}
+<h1>Referrer Conflicts</h1>
+<table>
+  <thead><tr><th>ID</th><th>Kind</th><th>Candidate</th><th>Provider #</th><th>Matches</th><th>Reason</th></tr></thead>
+  <tbody>
+  {% for c in conflicts %}
+    <tr>
+      <td>{{ c.conflict_id[:8] }}…</td>
+      <td>{{ c.kind }}</td>
+      <td>{{ c.candidate_name or "—" }}</td>
+      <td>{{ c.candidate_provider_number or "—" }}</td>
+      <td>{{ c.possible_matches|join(", ") or "—" }}</td>
+      <td>{{ c.reason or "—" }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6">No conflicts queued</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

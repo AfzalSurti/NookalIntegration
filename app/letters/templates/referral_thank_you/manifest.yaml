@@ -1,0 +1,6 @@
+document_type: referral_thank_you
+required_fields:
+  - referrer_name
+  - body
+optional_fields:
+  - recorded_on

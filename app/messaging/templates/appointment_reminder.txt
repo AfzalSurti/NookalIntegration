@@ -1,0 +1,1 @@
+Hi {name}, this is a reminder of your physiotherapy appointment on {date} at {time}. Reply if you need to reschedule. — Back to Ease

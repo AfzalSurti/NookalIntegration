@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Audit — Back to Ease{% endblock %}
+{% block content %}
+<h1>Audit</h1>
+<div class="panel">
+  <p>Use <code>GET /api/audit</code> with filters (actor, action, result, date, correlation ID).</p>
+  <p>Viewer returns scrubbed events only — no patient names, message bodies, or secrets.</p>
+</div>
+{% endblock %}

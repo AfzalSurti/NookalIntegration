@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Approvals — Back to Ease{% endblock %}
+{% block content %}
+<h1>Approval Queue</h1>
+<table>
+  <thead><tr><th>ID</th><th>Type</th><th>Patient</th><th>Status</th><th>Template</th><th>Created</th></tr></thead>
+  <tbody>
+  {% for t in tasks %}
+    <tr>
+      <td>{{ t.id[:8] }}…</td>
+      <td>{{ t.type }}</td>
+      <td>{{ t.patient_id }}</td>
+      <td>{{ t.status }}</td>
+      <td>{{ t.safe_draft.template_id or "—" }}</td>
+      <td>{{ t.created_at }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6">No pending tasks</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="meta">Approve/reject via API with CSRF header — UI actions use the same ApprovalQueue.</p>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}System — Back to Ease{% endblock %}
+{% block content %}
+<h1>System</h1>
+<div class="panel">
+  <p>Environment: <strong>{{ status.environment }}</strong></p>
+  <p>Kill switch: <strong>{{ "ACTIVE" if status.kill_switch_active else "inactive" }}</strong></p>
+  <p>Pending approvals: {{ status.pending_approvals }}</p>
+  <p>Live Nookal: {{ status.nookal_configured }}</p>
+  <p>Live messaging: {{ status.messaging_configured }}</p>
+  <p>LLM configured: {{ status.llm_configured }}</p>
+</div>
+<p class="meta">Kill-switch changes require <code>system:kill_switch</code> via <code>POST /api/system/kill-switch</code>.</p>
+{% endblock %}

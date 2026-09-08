@@ -1,0 +1,7 @@
+document_type: treatment_completion
+required_fields:
+  - patient_label
+  - body
+optional_fields:
+  - completion_date
+  - referrer_name

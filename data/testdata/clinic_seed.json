@@ -1,0 +1,137 @@
+{
+  "as_of": "2026-09-07",
+  "patients": [
+    {
+      "patient_id": "pat_1001",
+      "phone": "+61411110001",
+      "email": "alex.rivera@example.test",
+      "display_name": "Alex Rivera",
+      "date_of_birth": "1990-03-15",
+      "suburb": "Richmond",
+      "referrer_id": "ref_john_smith"
+    },
+    {
+      "patient_id": "pat_1002",
+      "phone": "+61411110002",
+      "email": "sam.lee@example.test",
+      "display_name": "Sam Lee",
+      "date_of_birth": "1985-07-20",
+      "suburb": "Carlton",
+      "referrer_id": "ref_priya_nair"
+    },
+    {
+      "patient_id": "pat_1003",
+      "phone": "+61411110003",
+      "email": "jordan.ng@example.test",
+      "display_name": "Jordan Ng",
+      "date_of_birth": "2000-11-02",
+      "suburb": "Richmond",
+      "referrer_id": "ref_john_smith"
+    },
+    {
+      "patient_id": "pat_1004",
+      "phone": "+61411110004",
+      "email": "morgan.patel@example.test",
+      "display_name": "Morgan Patel",
+      "date_of_birth": "1972-01-08",
+      "suburb": "Fitzroy",
+      "referrer_id": null
+    }
+  ],
+  "appointments": [
+    {
+      "appointment_id": "appt_2001",
+      "patient_id": "pat_1001",
+      "starts_at": "2026-09-08T10:00:00+00:00",
+      "status": "booked",
+      "practitioner_id": "prac_1"
+    },
+    {
+      "appointment_id": "appt_2002",
+      "patient_id": "pat_1002",
+      "starts_at": "2026-09-05T09:00:00+00:00",
+      "status": "completed",
+      "practitioner_id": "prac_1"
+    },
+    {
+      "appointment_id": "appt_2003",
+      "patient_id": "pat_1002",
+      "starts_at": "2026-09-12T14:30:00+00:00",
+      "status": "booked",
+      "practitioner_id": "prac_2"
+    },
+    {
+      "appointment_id": "appt_2004",
+      "patient_id": "pat_1003",
+      "starts_at": "2026-08-20T11:00:00+00:00",
+      "status": "completed",
+      "practitioner_id": "prac_1"
+    },
+    {
+      "appointment_id": "appt_2005",
+      "patient_id": "pat_1004",
+      "starts_at": "2026-09-09T16:00:00+00:00",
+      "status": "booked",
+      "practitioner_id": "prac_2"
+    }
+  ],
+  "referrers": [
+    {
+      "referrer_id": "ref_john_smith",
+      "name": "Dr John Smith",
+      "provider_number": "1234567A"
+    },
+    {
+      "referrer_id": "ref_priya_nair",
+      "name": "Dr Priya Nair",
+      "provider_number": "7654321B"
+    },
+    {
+      "referrer_id": "ref_j_smith_legacy",
+      "name": "Dr J Smith",
+      "provider_number": null
+    }
+  ],
+  "referrals": [
+    {
+      "referral_id": "referral_3001",
+      "patient_id": "pat_1001",
+      "referrer_id": "ref_john_smith",
+      "recorded_on": "2026-08-15",
+      "notes_ref": "note_ref_3001"
+    },
+    {
+      "referral_id": "referral_3002",
+      "patient_id": "pat_1002",
+      "referrer_id": "ref_priya_nair",
+      "recorded_on": "2026-08-28",
+      "notes_ref": "note_ref_3002"
+    }
+  ],
+  "documents": [
+    {
+      "document_id": "doc_4001",
+      "patient_id": "pat_1001",
+      "title": "Synthetic completion letter placeholder"
+    }
+  ],
+  "sync_scenarios": {
+    "exact_match_candidate": {
+      "name": "Dr John Smith",
+      "provider_number": "1234567A",
+      "expected": "exact_match",
+      "canonical_referrer_id": "ref_john_smith"
+    },
+    "ambiguous_candidate": {
+      "name": "Dr J. Smith",
+      "provider_number": null,
+      "expected": "conflict_queue",
+      "possible_matches": ["ref_john_smith", "ref_j_smith_legacy"]
+    },
+    "new_referrer_candidate": {
+      "name": "Dr Amelia Chen",
+      "provider_number": "9988776C",
+      "expected": "new_pending_confirm"
+    }
+  }
+}

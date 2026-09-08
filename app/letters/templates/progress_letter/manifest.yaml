@@ -1,0 +1,6 @@
+document_type: progress_letter
+required_fields:
+  - patient_label
+  - body
+optional_fields:
+  - referrer_name

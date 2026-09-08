@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Overview — Back to Ease{% endblock %}
+{% block content %}
+<h1>Overview</h1>
+<div class="panel">
+  <p>Application: <strong>{{ status.application }}</strong></p>
+  <p>Environment: <strong>{{ status.environment }}</strong></p>
+  <p>Pending approvals: <strong>{{ status.pending_approvals }}</strong></p>
+  <p>Kill switch: <strong>{{ "ACTIVE" if status.kill_switch_active else "inactive" }}</strong></p>
+  <p>Nookal live credentials: {{ "configured" if status.nookal_configured else "not configured (mock OK)" }}</p>
+  <p>Messaging live credentials: {{ "configured" if status.messaging_configured else "not configured (fake OK)" }}</p>
+  <p>LLM: {{ "configured" if status.llm_configured else "not configured" }}</p>
+</div>
+{% endblock %}

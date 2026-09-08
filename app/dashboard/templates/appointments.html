@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Appointments — Back to Ease{% endblock %}
+{% block content %}
+<h1>Appointments</h1>
+<table>
+  <thead><tr><th>ID</th><th>Patient</th><th>Starts</th><th>Status</th><th>Practitioner</th></tr></thead>
+  <tbody>
+  {% for a in appointments %}
+    <tr>
+      <td>{{ a.appointment_id }}</td>
+      <td><a href="/patients/{{ a.patient_id }}">{{ a.patient_id }}</a></td>
+      <td>{{ a.starts_at }}</td>
+      <td>{{ a.status or "—" }}</td>
+      <td>{{ a.practitioner_id or "—" }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5">No upcoming appointments</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

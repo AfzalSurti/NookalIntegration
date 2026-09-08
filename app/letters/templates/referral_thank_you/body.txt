@@ -1,0 +1,8 @@
+Dear {referrer_name},
+
+Thank you for referring your patient to Back to Ease Physiotherapy.
+
+{body}
+
+Kind regards,
+Back to Ease Physiotherapy

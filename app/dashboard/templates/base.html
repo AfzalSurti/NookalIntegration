@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Back to Ease{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #f3f0ea;
+      --ink: #1c2a2e;
+      --accent: #0f6b5c;
+      --warn: #9a3412;
+      --panel: #fffdf8;
+      --line: #d7d0c4;
+      --muted: #5b676b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 0%, #e7f2ef 0%, transparent 45%),
+        linear-gradient(180deg, #efebe3, var(--bg));
+      min-height: 100vh;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: center;
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,253,248,0.92);
+      backdrop-filter: blur(6px);
+      position: sticky;
+      top: 0;
+    }
+    .brand { font-weight: 700; letter-spacing: 0.02em; color: var(--accent); }
+    .meta { color: var(--muted); font-size: 0.9rem; }
+    .pill {
+      display: inline-block;
+      padding: 0.15rem 0.55rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 0.8rem;
+      margin-left: 0.35rem;
+    }
+    .pill.warn { border-color: var(--warn); color: var(--warn); }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      padding: 0.75rem 1.5rem;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+    nav a { color: var(--ink); text-decoration: none; font-size: 0.95rem; }
+    nav a:hover { color: var(--accent); }
+    main { padding: 1.25rem 1.5rem 2.5rem; max-width: 1100px; }
+    h1 { margin: 0 0 0.75rem; font-size: 1.55rem; }
+    table { width: 100%; border-collapse: collapse; background: var(--panel); }
+    th, td { text-align: left; padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+    th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    label { display: block; font-size: 0.85rem; margin-bottom: 0.25rem; color: var(--muted); }
+    input, select, button, textarea {
+      font: inherit;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: white;
+    }
+    button, .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+    }
+    button.secondary { background: var(--muted); }
+    .error { color: var(--warn); margin: 0.5rem 0; }
+    .stack { display: grid; gap: 0.75rem; }
+    .row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header>
+    <div>
+      <div class="brand">Back to Ease Physiotherapy</div>
+      <div class="meta">Clinic automation control plane</div>
+    </div>
+    <div class="meta">
+      {% if user %}
+        {{ user.display_name or user.username }}
+        <span class="pill">{{ user.role }}</span>
+        {% if pending_approvals %}<span class="pill">{{ pending_approvals }} pending</span>{% endif %}
+        {% if kill_switch_active %}<span class="pill warn">KILL SWITCH ON</span>{% endif %}
+      {% else %}
+        Not signed in
+      {% endif %}
+    </div>
+  </header>
+  {% if user %}
+  <nav>
+    {% for label, href in nav %}
+      <a href="{{ href }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  {% if csrf_token %}
+  <script>window.__CSRF__ = {{ csrf_token|tojson }};</script>
+  {% endif %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>
