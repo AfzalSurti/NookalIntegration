@@ -9,6 +9,14 @@ from app.approval import ApprovalQueue
 from app.dashboard.auth import AuthBackend, SessionStore
 from app.dashboard.authorization import AuthorizationPolicy
 from app.letters import DocumentDelivery, DocumentStore, InMemoryDocumentDelivery, InMemoryDocumentStore
+from app.marketing import (
+    CampaignRecipientStore,
+    CampaignStore,
+    ConsentStore,
+    FakeEmailAdapter,
+    MarketingListStore,
+    SuppressionStore,
+)
 from app.messaging import MessagingService
 from app.nookal_client import NookalClient
 from app.orchestration.pending_actions import PendingActionStore
@@ -34,6 +42,12 @@ class DashboardContainer:
     document_store: DocumentStore = field(default_factory=InMemoryDocumentStore)
     document_delivery: DocumentDelivery = field(default_factory=InMemoryDocumentDelivery)
     conflict_store: ReferrerConflictStore = field(default_factory=ReferrerConflictStore)
+    marketing_list_store: MarketingListStore = field(default_factory=MarketingListStore)
+    campaign_store: CampaignStore = field(default_factory=CampaignStore)
+    campaign_recipient_store: CampaignRecipientStore = field(default_factory=CampaignRecipientStore)
+    consent_store: ConsentStore = field(default_factory=ConsentStore)
+    suppression_store: SuppressionStore = field(default_factory=SuppressionStore)
+    email_adapter: FakeEmailAdapter = field(default_factory=FakeEmailAdapter)
     pending_actions: PendingActionStore | None = None
     kill_switch_path: Path | None = None
     environment: str = "development"  # development | test | production

@@ -14,6 +14,7 @@ from app.dashboard.api import (
     audit,
     auth,
     documents,
+    marketing,
     patients,
     referrers,
     system,
@@ -67,6 +68,7 @@ def create_app(container: DashboardContainer | None = None) -> FastAPI:
     app.include_router(referrers.router)
     app.include_router(appointments.router)
     app.include_router(audit.router)
+    app.include_router(marketing.router)
     app.include_router(system.router)
     app.include_router(pages.router)
 

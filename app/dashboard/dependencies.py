@@ -12,6 +12,7 @@ from app.dashboard.services import (
     ApprovalService,
     AppointmentService,
     AuditViewerService,
+    MarketingService,
     PatientService,
     ReferrerConflictService,
     SystemService,
@@ -154,4 +155,17 @@ def system_service(container: Annotated[DashboardContainer, Depends(get_containe
         llm_configured=container.llm_configured,
         nookal_live_configured=container.nookal_live_configured,
         messaging_live_configured=container.messaging_live_configured,
+    )
+
+
+def marketing_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> MarketingService:
+    return MarketingService(
+        nookal=container.nookal,
+        list_store=container.marketing_list_store,
+        campaign_store=container.campaign_store,
+        recipient_store=container.campaign_recipient_store,
+        consent_store=container.consent_store,
+        suppression_store=container.suppression_store,
+        email_adapter=container.email_adapter,
+        audit=container.audit,
     )
