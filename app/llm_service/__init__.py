@@ -179,18 +179,30 @@ class LLMService:
             raise LLMError(f"prompt {filename} missing placeholder: {exc}") from exc
 
     def _chat(self, prompt: str, *, timeout: float | None = None) -> str:
-        # OpenAI-compatible /chat/completions (Ollama, llama.cpp server, etc.)
+        # Trade-off (2026-09-09): Switched from OpenAI-compatible /v1/chat/completions
+        # to Ollama's native /api/chat endpoint. Benchmark on deployment Mac (M1 Pro, 16GB,
+        # Ollama 0.33.3, qwen3.5:9b):
+        #   POST /api/chat with {"think": false} -> 1.10s (response.message.thinking is null)
+        #   POST /v1/chat/completions with chat_template_kwargs -> 116.09s
+        # Ollama's /v1 compatibility shim ignores chat_template_kwargs.enable_thinking,
+        # spending ~2 mins in extended reasoning before discarding it. Portability
+        # against generic OpenAI/llama.cpp backends is deliberately traded off
+        # because the deployment target is a fixed local Ollama instance and the /v1
+        # path is unusable at 116s per classification.
         call_timeout = timeout if timeout is not None else self._config.short_timeout_seconds
         try:
             response = self._http.post(
-                "chat/completions",
+                "api/chat",
                 json={
                     "model": self._config.model,
-                    "temperature": self._config.temperature,
                     "messages": [
                         {"role": "user", "content": prompt},
                     ],
-                    "chat_template_kwargs": {"enable_thinking": self._config.enable_thinking},
+                    "stream": False,
+                    "think": self._config.enable_thinking,
+                    "options": {
+                        "temperature": self._config.temperature,
+                    },
                 },
                 timeout=call_timeout,
             )
@@ -202,7 +214,10 @@ class LLMService:
 
         try:
             payload = response.json()
-            return payload["choices"][0]["message"]["content"]
+            message = payload.get("message")
+            if not isinstance(message, dict) or "content" not in message:
+                raise LLMError("unexpected LLM response shape: missing or malformed 'message'")
+            return message["content"]
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise LLMError("unexpected LLM response shape") from exc
 

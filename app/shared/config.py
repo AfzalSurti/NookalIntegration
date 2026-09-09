@@ -117,9 +117,14 @@ def get_settings(
     if not cfg_path.exists():
         cfg_path = root / "config" / "settings.yaml"
 
-    dotenv_path = Path(env_path) if env_path else home / "config" / ".env"
-    if not dotenv_path.exists():
-        dotenv_path = root / "config" / ".env"
+    if env_path:
+        dotenv_path = Path(env_path)
+    elif settings_path:
+        dotenv_path = Path(settings_path).parent / ".env"
+    else:
+        dotenv_path = home / "config" / ".env"
+        if not dotenv_path.exists():
+            dotenv_path = root / "config" / ".env"
     if dotenv_path.exists():
         load_dotenv(dotenv_path, override=False)
 
@@ -169,7 +174,7 @@ def get_settings(
         enable_thinking = bool(llm_raw.get("enable_thinking", False))
 
     llm = LLMConfig(
-        base_url=os.environ.get("LLM_BASE_URL") or llm_raw.get("base_url") or "http://127.0.0.1:11434/v1",
+        base_url=os.environ.get("LLM_BASE_URL") or llm_raw.get("base_url") or "http://127.0.0.1:11434",
         model=model,
         api_key=os.environ.get("LLM_API_KEY", ""),
         temperature=float(llm_raw.get("temperature", 0.2)),

@@ -24,7 +24,7 @@ def live_llm_service() -> Generator[LLMService, None, None]:
         pytest.skip(f"Ollama service unreachable at http://127.0.0.1:11434: {exc}")
 
     config = LLMConfig(
-        base_url="http://127.0.0.1:11434/v1",
+        base_url="http://127.0.0.1:11434",
         model="qwen3.5:9b",
         api_key="",
         temperature=0.2,

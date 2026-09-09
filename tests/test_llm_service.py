@@ -9,7 +9,7 @@ import pytest
 
 from app.llm_service import LLMService
 from app.shared.config import LLMConfig, clear_settings_cache, get_settings
-from app.shared.exceptions import ConfigError, repo_root
+from app.shared.exceptions import ConfigError, LLMError, repo_root
 
 
 def _cfg(
@@ -19,7 +19,7 @@ def _cfg(
     enable_thinking: bool = False,
 ) -> LLMConfig:
     return LLMConfig(
-        base_url="http://test/v1",
+        base_url="http://test",
         model="qwen3.5:9b",
         api_key="",
         temperature=0.2,
@@ -33,21 +33,18 @@ def _cfg(
 
 def test_draft_flags_missing_required() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/api/chat")
         return httpx.Response(
             200,
             json={
-                "choices": [
-                    {
-                        "message": {
-                            "content": "Dear Dr X,\n\n[MISSING: treatment_dates]\n\nRegards"
-                        }
-                    }
-                ]
+                "message": {
+                    "content": "Dear Dr X,\n\n[MISSING: treatment_dates]\n\nRegards"
+                }
             },
         )
 
     transport = httpx.MockTransport(handler)
-    client = httpx.Client(transport=transport, base_url="http://test/v1/")
+    client = httpx.Client(transport=transport, base_url="http://test/")
     svc = LLMService(_cfg(), client=client)
     result = svc.draft(
         template="Thank you for referring {name}.",
@@ -60,6 +57,7 @@ def test_draft_flags_missing_required() -> None:
 
 def test_parse_intent_low_confidence_becomes_other() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/api/chat")
         body = {
             "intent": "reschedule_appointment",
             "extracted_fields": {"date": "Thursday"},
@@ -67,11 +65,11 @@ def test_parse_intent_low_confidence_becomes_other() -> None:
         }
         return httpx.Response(
             200,
-            json={"choices": [{"message": {"content": json.dumps(body)}}]},
+            json={"message": {"content": json.dumps(body)}},
         )
 
     transport = httpx.MockTransport(handler)
-    client = httpx.Client(transport=transport, base_url="http://test/v1/")
+    client = httpx.Client(transport=transport, base_url="http://test/")
     svc = LLMService(_cfg(), client=client)
     result = svc.parse_intent("maybe move it?")
     assert result.intent == "other"
@@ -82,29 +80,25 @@ def test_chat_sends_thinking_flag_and_per_call_timeout() -> None:
     captured_requests: list[tuple[httpx.Request, dict[str, Any]]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/api/chat")
         payload = json.loads(request.content.decode("utf-8"))
         captured_requests.append((request, payload))
-        # Generic response that works for intent, draft, or expense
         body = {
-            "choices": [
-                {
-                    "message": {
-                        "content": json.dumps(
-                            {
-                                "intent": "other",
-                                "extracted_fields": {},
-                                "confidence": "low",
-                                "fields": {},
-                            }
-                        )
+            "message": {
+                "content": json.dumps(
+                    {
+                        "intent": "other",
+                        "extracted_fields": {},
+                        "confidence": "low",
+                        "fields": {},
                     }
-                }
-            ]
+                )
+            }
         }
         return httpx.Response(200, json=body)
 
     transport = httpx.MockTransport(handler)
-    client = httpx.Client(transport=transport, base_url="http://test/v1/")
+    client = httpx.Client(transport=transport, base_url="http://test/")
 
     # 1. Test parse_intent with default thinking disabled
     svc_thinking_disabled = LLMService(
@@ -113,14 +107,19 @@ def test_chat_sends_thinking_flag_and_per_call_timeout() -> None:
     )
     svc_thinking_disabled.parse_intent("I need to cancel")
     req1, payload1 = captured_requests[-1]
-    assert payload1.get("chat_template_kwargs") == {"enable_thinking": False}
+    assert payload1["model"] == "qwen3.5:9b"
+    assert payload1["stream"] is False
+    assert payload1["think"] is False
+    assert payload1["options"] == {"temperature": 0.2}
     timeout1 = req1.extensions.get("timeout", {})
     assert timeout1.get("read") == 30.0
 
     # 2. Test extract_expense sends short timeout
     svc_thinking_disabled.extract_expense("Receipt text here")
     req2, payload2 = captured_requests[-1]
-    assert payload2.get("chat_template_kwargs") == {"enable_thinking": False}
+    assert payload2["stream"] is False
+    assert payload2["think"] is False
+    assert payload2["options"] == {"temperature": 0.2}
     timeout2 = req2.extensions.get("timeout", {})
     assert timeout2.get("read") == 30.0
 
@@ -130,7 +129,9 @@ def test_chat_sends_thinking_flag_and_per_call_timeout() -> None:
         facts={"name": "Alice"},
     )
     req3, payload3 = captured_requests[-1]
-    assert payload3.get("chat_template_kwargs") == {"enable_thinking": False}
+    assert payload3["stream"] is False
+    assert payload3["think"] is False
+    assert payload3["options"] == {"temperature": 0.2}
     timeout3 = req3.extensions.get("timeout", {})
     assert timeout3.get("read") == 300.0
 
@@ -141,7 +142,8 @@ def test_chat_sends_thinking_flag_and_per_call_timeout() -> None:
     )
     svc_thinking_enabled.parse_intent("Check appointment")
     req4, payload4 = captured_requests[-1]
-    assert payload4.get("chat_template_kwargs") == {"enable_thinking": True}
+    assert payload4["think"] is True
+    assert payload4["options"] == {"temperature": 0.2}
     timeout4 = req4.extensions.get("timeout", {})
     assert timeout4.get("read") == 15.0
 
@@ -152,6 +154,19 @@ def test_chat_sends_thinking_flag_and_per_call_timeout() -> None:
     assert timeout5.get("read") == 42.0
 
 
+def test_chat_malformed_response_raises_llm_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        # Returns response missing "message" or with non-dict "message"
+        return httpx.Response(200, json={"done": True})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url="http://test/")
+    svc = LLMService(_cfg(), client=client)
+
+    with pytest.raises(LLMError, match="unexpected LLM response shape"):
+        svc._chat("test prompt")
+
+
 def test_config_missing_model_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     yaml_file = tmp_path / "settings_no_model.yaml"
     yaml_file.write_text(
@@ -159,7 +174,7 @@ def test_config_missing_model_raises(tmp_path: Path, monkeypatch: pytest.MonkeyP
 paths: {}
 nookal: {}
 llm:
-  base_url: http://127.0.0.1:11434/v1
+  base_url: http://127.0.0.1:11434
   # model is omitted
 messaging: {}
 approval: {}
