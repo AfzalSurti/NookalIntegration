@@ -6,9 +6,6 @@
     <key>Label</key>
     <string>com.backtoease.nookalintegration</string>
 
-    <!-- Run under user account (automation), not root -->
-    <key>UserName</key>
-    <string>automation</string>
 
     <!-- Executable: production runner in virtualenv -->
     <key>ProgramArguments</key>
