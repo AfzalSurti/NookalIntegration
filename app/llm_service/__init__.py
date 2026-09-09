@@ -76,7 +76,7 @@ class LLMService:
             headers["Authorization"] = f"Bearer {self._config.api_key}"
         self._http = client or httpx.Client(
             base_url=self._config.base_url.rstrip("/") + "/",
-            timeout=self._config.timeout_seconds,
+            timeout=self._config.long_timeout_seconds,
             headers=headers,
         )
         self._prompts = self._config.prompts_dir
@@ -112,13 +112,13 @@ class LLMService:
             template=template,
             facts_block=_format_facts(facts_for_prompt),
         )
-        text = self._chat(prompt)
+        text = self._chat(prompt, timeout=self._config.long_timeout_seconds)
         missing = sorted(set(pre_missing) | set(_MISSING_RE.findall(text)))
         return DraftResult(text=text.strip(), missing_fields=missing)
 
     def parse_intent(self, message: str) -> IntentResult:
         prompt = self._render_prompt("intent.txt", patient_message=message.strip())
-        raw = self._chat(prompt)
+        raw = self._chat(prompt, timeout=self._config.short_timeout_seconds)
         parsed = _extract_json(raw)
         if parsed is None:
             return IntentResult(intent="other", extracted_fields={}, confidence="low", raw=raw)
@@ -152,7 +152,7 @@ class LLMService:
     def extract_expense(self, document_text: str) -> ExpenseExtractionResult:
         """Extract only stated receipt facts; missing values must remain marked."""
         prompt = self._render_prompt("expense_extract.txt", document_text=document_text)
-        raw = self._chat(prompt)
+        raw = self._chat(prompt, timeout=self._config.short_timeout_seconds)
         parsed = _extract_json(raw) or {}
         fields = parsed.get("fields") or {}
         if not isinstance(fields, dict):
@@ -178,8 +178,9 @@ class LLMService:
         except KeyError as exc:
             raise LLMError(f"prompt {filename} missing placeholder: {exc}") from exc
 
-    def _chat(self, prompt: str) -> str:
+    def _chat(self, prompt: str, *, timeout: float | None = None) -> str:
         # OpenAI-compatible /chat/completions (Ollama, llama.cpp server, etc.)
+        call_timeout = timeout if timeout is not None else self._config.short_timeout_seconds
         try:
             response = self._http.post(
                 "chat/completions",
@@ -189,7 +190,9 @@ class LLMService:
                     "messages": [
                         {"role": "user", "content": prompt},
                     ],
+                    "chat_template_kwargs": {"enable_thinking": self._config.enable_thinking},
                 },
+                timeout=call_timeout,
             )
         except httpx.HTTPError as exc:
             raise LLMError(f"LLM transport error: {exc}") from exc

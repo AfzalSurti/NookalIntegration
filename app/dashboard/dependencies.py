@@ -140,9 +140,11 @@ def appointment_service(container: Annotated[DashboardContainer, Depends(get_con
 
 
 def audit_viewer_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> AuditViewerService:
-    # container.audit may be a bound method (audit.log_event) or an AuditLog directly.
+    # container.audit may be a CapturingAudit, a bound method (audit.log_event), or an AuditLog directly.
     audit_fn = container.audit
-    log = getattr(audit_fn, "__self__", None)  # bound method → get AuditLog instance
+    log = getattr(audit_fn, "log", None)
+    if not isinstance(log, AuditLog):
+        log = getattr(audit_fn, "__self__", None)
     if not isinstance(log, AuditLog):
         log = audit_fn if isinstance(audit_fn, AuditLog) else None
     if log is None:

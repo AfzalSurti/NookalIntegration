@@ -36,9 +36,19 @@ class LLMConfig:
     model: str
     api_key: str
     temperature: float
-    timeout_seconds: float
     intent_confidence_threshold: str
     prompts_dir: Path
+    short_timeout_seconds: float = 30.0
+    long_timeout_seconds: float = 300.0
+    enable_thinking: bool = False
+    timeout_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.timeout_seconds is not None:
+            if self.short_timeout_seconds == 30.0:
+                object.__setattr__(self, "short_timeout_seconds", float(self.timeout_seconds))
+            if self.long_timeout_seconds == 300.0:
+                object.__setattr__(self, "long_timeout_seconds", float(self.timeout_seconds))
 
 
 @dataclass(frozen=True)
@@ -139,12 +149,33 @@ def get_settings(
         timeout_seconds=float(nookal_raw.get("timeout_seconds", 30)),
     )
 
+    model = os.environ.get("LLM_MODEL") or llm_raw.get("model")
+    if not model:
+        raise ConfigError("llm.model must be specified in settings.yaml or via LLM_MODEL environment variable")
+
+    # Benchmark (2026-09-09): Measured eval rate 20.81 tok/s on Mac (M1 Pro, 16GB) running qwen3.5:9b via Ollama 0.33.3.
+    # Short structured calls (parse_intent, extract_expense) default to 30s.
+    # Long-form generation (draft) defaults to 300s.
+    short_timeout_env = os.environ.get("LLM_SHORT_TIMEOUT_SECONDS") or os.environ.get("LLM_TIMEOUT_SECONDS")
+    short_timeout = float(short_timeout_env) if short_timeout_env else float(llm_raw.get("short_timeout_seconds", 30))
+
+    long_timeout_env = os.environ.get("LLM_LONG_TIMEOUT_SECONDS")
+    long_timeout = float(long_timeout_env) if long_timeout_env else float(llm_raw.get("long_timeout_seconds", 300))
+
+    thinking_env = os.environ.get("LLM_ENABLE_THINKING")
+    if thinking_env is not None:
+        enable_thinking = thinking_env.strip().lower() in ("1", "true", "yes")
+    else:
+        enable_thinking = bool(llm_raw.get("enable_thinking", False))
+
     llm = LLMConfig(
         base_url=os.environ.get("LLM_BASE_URL") or llm_raw.get("base_url") or "http://127.0.0.1:11434/v1",
-        model=os.environ.get("LLM_MODEL") or llm_raw.get("model") or "qwen3:8b",
+        model=model,
         api_key=os.environ.get("LLM_API_KEY", ""),
         temperature=float(llm_raw.get("temperature", 0.2)),
-        timeout_seconds=float(llm_raw.get("timeout_seconds", 120)),
+        short_timeout_seconds=short_timeout,
+        long_timeout_seconds=long_timeout,
+        enable_thinking=enable_thinking,
         intent_confidence_threshold=str(llm_raw.get("intent_confidence_threshold", "high")),
         prompts_dir=root / "app" / "llm_service" / "prompts",
     )

@@ -37,7 +37,7 @@ def _require_pending(ctx: WorkflowContext) -> PendingActionStore:
     return store
 
 
-def _parse_intent_safe(ctx: WorkflowContext, message: str) -> Any:
+def _parse_intent(ctx: WorkflowContext, message: str) -> Any:
     llm = _require_llm(ctx)
     return llm.parse_intent(message)
 
@@ -98,7 +98,7 @@ class CheckAppointmentWorkflow(BaseWorkflow):
         **_extra: Any,
     ) -> WorkflowResult:
         try:
-            intent = _parse_intent_safe(ctx, message)
+            intent = _parse_intent(ctx, message)
         except Exception as exc:
             ctx.audit_event(
                 "check_appointment.llm_failed",
@@ -190,7 +190,7 @@ class RescheduleAppointmentWorkflow(BaseWorkflow):
             return self._confirm(ctx, store, phone, confirmation_text, pending_action_id)
 
         try:
-            intent = _parse_intent_safe(ctx, message)
+            intent = _parse_intent(ctx, message)
         except Exception as exc:
             return WorkflowResult.failed(
                 self.name,
@@ -461,7 +461,7 @@ class CancelAppointmentWorkflow(BaseWorkflow):
             return self._confirm(ctx, store, phone, confirmation_text, pending_action_id)
 
         try:
-            intent = _parse_intent_safe(ctx, message)
+            intent = _parse_intent(ctx, message)
         except Exception as exc:
             return WorkflowResult.failed(
                 self.name,
@@ -653,7 +653,7 @@ class CreateAppointmentWorkflow(BaseWorkflow):
             return self._confirm(ctx, store, phone, confirmation_text, pending_action_id)
 
         try:
-            intent = _parse_intent_safe(ctx, message)
+            intent = _parse_intent(ctx, message)
         except Exception as exc:
             return WorkflowResult.failed(
                 self.name,

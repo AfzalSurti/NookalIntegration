@@ -18,9 +18,14 @@ nookal:
 
 llm:
   base_url: http://127.0.0.1:11434/v1
-  model: qwen3:8b
+  model: qwen3.5:9b
   temperature: 0.2
-  timeout_seconds: 120
+  # Benchmark (2026-09-09): Measured eval rate 20.81 tok/s on Mac (M1 Pro, 16GB) running qwen3.5:9b via Ollama 0.33.3.
+  # Short structured calls (parse_intent, extract_expense) default to 30s.
+  # Long-form generation (draft) defaults to 300s.
+  short_timeout_seconds: 30
+  long_timeout_seconds: 300
+  enable_thinking: false
   intent_confidence_threshold: high  # only "high" auto-routes; low/other → human
 
 messaging:
