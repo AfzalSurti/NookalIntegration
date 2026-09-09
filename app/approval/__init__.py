@@ -26,6 +26,7 @@ class TaskType(str, Enum):
     CERTIFICATE = "certificate"
     WHATSAPP_REPLY = "whatsapp_reply"
     APPOINTMENT_CHANGE = "appointment_change"
+    EXPENSE_EXTRACTION = "expense_extraction"
 
 
 class TaskStatus(str, Enum):
