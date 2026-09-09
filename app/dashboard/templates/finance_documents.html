@@ -1,9 +1,146 @@
 {% extends "base.html" %}
-{% block title %}Finance documents - Back to Ease{% endblock %}
+{% block title %}Finance Documents — Back to Ease{% endblock %}
+{% block topbar_title %}Document Intake & Matching{% endblock %}
 {% block content %}
-<h1>Document review</h1>
-<p>Documents requiring patient-match review.</p>
-<table><tr><th>ID</th><th>Filename</th><th>Match</th><th>Type</th></tr>
-{% for document in documents %}<tr><td>{{ document.document_id }}</td><td>{{ document.original_filename }}</td><td>{{ document.patient_match.status }}</td><td>{{ document.document_type }}</td></tr>{% else %}<tr><td colspan="4">No documents pending review.</td></tr>{% endfor %}
-</table>
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+    <h1 class="page-title">Document Intake Review</h1>
+    <span class="badge {% if documents|length > 0 %}badge-info{% else %}badge-neutral{% endif %}">
+      {{ documents|length }} documents
+    </span>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Uploaded Invoices & Clinical Attachments</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Document ID</th>
+          <th>Filename</th>
+          <th>Match Status</th>
+          <th>Type</th>
+          <th>Filing Status</th>
+          {% if can_review %}
+          <th style="text-align: right;">Action</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for d in documents %}
+        <tr>
+          <td><code>{{ d.document_id[:8] }}…</code></td>
+          <td><strong>{{ d.original_filename or "document" }}</strong></td>
+          <td>
+            {% if d.patient_match.status == "matched" %}
+              <span class="badge badge-success">Matched</span>
+            {% elif d.patient_match.status == "ambiguous" %}
+              <span class="badge badge-warning">Ambiguous</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ d.patient_match.status or "Unmatched" }}</span>
+            {% endif %}
+          </td>
+          <td>{{ d.document_type or "General" }}</td>
+          <td>
+            {% if d.filing_status == "filed" %}
+              <span class="badge badge-success">Filed to {{ d.filed_to }}</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ d.filing_status or "Pending" }}</span>
+            {% endif %}
+          </td>
+          {% if can_review %}
+          <td style="text-align: right;">
+            {% if d.filing_status != "filed" %}
+            <button type="button" class="btn btn-primary btn-sm" onclick="openResolveDocModal('{{ d.document_id }}', '{{ d.original_filename }}')">
+              Match Patient
+            </button>
+            {% else %}
+            <span style="color: var(--text-muted); font-size: 0.85rem;">Filed</span>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="{% if can_review %}6{% else %}5{% endif %}">
+            <div class="empty-state">
+              <div class="empty-state-title">No documents pending review.</div>
+              <div class="empty-state-text">All ingested files have been matched and filed to patient accounts.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="info-banner">
+  Intake Pipeline: Documents uploaded via email or manual upload are scanned for patient identifiers. Unresolved items require human confirmation before filing into Nookal.
+</div>
+
+<!-- Modal: Match Patient to Document -->
+<div class="modal-backdrop" id="match-doc-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="match-doc-title">Match Patient to Document</div>
+      <button class="modal-close" onclick="closeModal('match-doc-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="match-doc-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="match-doc-form" onsubmit="submitMatchDoc(event)">
+        <input type="hidden" id="match-doc-id" name="document_id">
+        <p style="margin-bottom: var(--sp-4); font-size: 0.9rem;" id="match-doc-prompt"></p>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="match-patient-id">Patient ID <span style="color: var(--error);">*</span></label>
+          <input id="match-patient-id" required placeholder="e.g. pat_1001">
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('match-doc-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-match">Confirm Match & File</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openResolveDocModal(docId, filename) {
+  document.getElementById('match-doc-id').value = docId;
+  document.getElementById('match-doc-title').textContent = 'Match Document: ' + (filename || docId);
+  document.getElementById('match-doc-prompt').textContent = 'Assign file "' + (filename || docId) + '" to a verified patient record:';
+  document.getElementById('match-patient-id').value = '';
+  document.getElementById('match-doc-error').style.display = 'none';
+  openModal('match-doc-modal');
+}
+
+function submitMatchDoc(e) {
+  e.preventDefault();
+  const docId = document.getElementById('match-doc-id').value;
+  const patientId = document.getElementById('match-patient-id').value.trim();
+  const errorDiv = document.getElementById('match-doc-error');
+  errorDiv.style.display = 'none';
+
+  const btn = document.getElementById('btn-submit-match');
+  btn.disabled = true;
+  btn.textContent = 'Filing...';
+
+  apiCall('POST', '/api/finance/documents/' + encodeURIComponent(docId) + '/resolve', { patient_id: patientId })
+    .then(() => {
+      closeModal('match-doc-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Confirm Match & File';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to file document.';
+    });
+}
+</script>
 {% endblock %}

@@ -1,14 +1,130 @@
 {% extends "base.html" %}
 {% block title %}Overview — Back to Ease{% endblock %}
+{% block topbar_title %}Overview{% endblock %}
 {% block content %}
-<h1>Overview</h1>
-<div class="panel">
-  <p>Application: <strong>{{ status.application }}</strong></p>
-  <p>Environment: <strong>{{ status.environment }}</strong></p>
-  <p>Pending approvals: <strong>{{ status.pending_approvals }}</strong></p>
-  <p>Kill switch: <strong>{{ "ACTIVE" if status.kill_switch_active else "inactive" }}</strong></p>
-  <p>Nookal live credentials: {{ "configured" if status.nookal_configured else "not configured (mock OK)" }}</p>
-  <p>Messaging live credentials: {{ "configured" if status.messaging_configured else "not configured (fake OK)" }}</p>
-  <p>LLM: {{ "configured" if status.llm_configured else "not configured" }}</p>
+<h1 class="page-title">Dashboard</h1>
+
+<!-- Status cards -->
+<div class="card-grid">
+  <a href="/approvals" class="stat-card">
+    <div class="stat-icon">✓</div>
+    <div class="stat-value">{{ pending_count }}</div>
+    <div class="stat-label">Pending Approvals</div>
+  </a>
+  <a href="/appointments" class="stat-card">
+    <div class="stat-icon">▦</div>
+    <div class="stat-value">{{ upcoming_count }}</div>
+    <div class="stat-label">Upcoming Appointments</div>
+  </a>
+  <div class="stat-card">
+    <div class="stat-icon">⚙</div>
+    <div class="stat-value">
+      {% if status.kill_switch_active %}
+        <span style="color:var(--error)">ACTIVE</span>
+      {% else %}
+        <span style="color:var(--success)">Off</span>
+      {% endif %}
+    </div>
+    <div class="stat-label">Safe Stop / Kill Switch</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon">◉</div>
+    <div class="stat-value" style="font-size:1.1rem">{{ status.environment }}</div>
+    <div class="stat-label">Environment</div>
+  </div>
+</div>
+
+<!-- Integration health -->
+<div class="section-title">Integration Health</div>
+<div class="card mb-5">
+  <div class="flex flex-wrap gap-4">
+    <div>
+      <span class="text-sm text-secondary">Nookal API</span><br>
+      {% if status.nookal_configured %}
+        <span class="badge badge-success">Connected</span>
+      {% else %}
+        <span class="badge badge-neutral">Offline (mock)</span>
+      {% endif %}
+    </div>
+    <div>
+      <span class="text-sm text-secondary">Messaging</span><br>
+      {% if status.messaging_configured %}
+        <span class="badge badge-success">Connected</span>
+      {% else %}
+        <span class="badge badge-neutral">Offline (fake)</span>
+      {% endif %}
+    </div>
+    <div>
+      <span class="text-sm text-secondary">LLM Service</span><br>
+      {% if status.llm_configured %}
+        <span class="badge badge-success">Connected</span>
+      {% else %}
+        <span class="badge badge-neutral">Not configured</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Recent activity split -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-5)">
+  <!-- Upcoming appointments -->
+  <div>
+    <div class="flex-between mb-3">
+      <span class="section-title" style="margin:0">Upcoming Appointments</span>
+      <a href="/appointments" class="btn btn-ghost btn-sm">View all →</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Patient</th><th>Date/Time</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for a in upcoming_appointments %}
+          <tr>
+            <td><a href="/patients/{{ a.patient_id }}">{{ a.patient_id }}</a></td>
+            <td>{{ a.starts_at.strftime('%d %b %Y %H:%M') if a.starts_at else '—' }}</td>
+            <td>
+              {% if a.status and a.status.lower() == 'booked' %}
+                <span class="badge badge-info">{{ a.status }}</span>
+              {% elif a.status and a.status.lower() == 'completed' %}
+                <span class="badge badge-success">{{ a.status }}</span>
+              {% elif a.status and a.status.lower() in ('cancelled','canceled') %}
+                <span class="badge badge-error">{{ a.status }}</span>
+              {% elif a.status %}
+                <span class="badge badge-neutral">{{ a.status }}</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="empty-row" style="padding:var(--sp-6)"><span class="text-muted">No upcoming appointments</span></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Pending approvals -->
+  <div>
+    <div class="flex-between mb-3">
+      <span class="section-title" style="margin:0">Pending Approvals</span>
+      <a href="/approvals" class="btn btn-ghost btn-sm">View all →</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Type</th><th>Patient</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for t in pending_tasks %}
+          <tr>
+            <td>{{ t.type }}</td>
+            <td>{{ t.patient_id }}</td>
+            <td><span class="badge badge-warning">{{ t.status }}</span></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="empty-row" style="padding:var(--sp-6)"><span class="text-muted">No pending approvals</span></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
 {% endblock %}

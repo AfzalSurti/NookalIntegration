@@ -51,22 +51,91 @@ def _redact_secrets(text: str, api_key: str | None = None) -> str:
 def _unwrap_collection(data: Any, preferred_key: str | None = None) -> list[Any]:
     """
     Unwrap collection from Nookal data payloads.
-    Handles lists, dicts of records, or wrapped dict keys (e.g. {'patients': [...]}).
+    Handles:
+    - Lists of records: [ {...}, {...} ]
+    - Nookal official v2 wrapped results:
+      {"api_call": "...", "results": {"patients": [...]}}
+      {"api_call": "...", "results": {"appointments": [...]}}
+    - Dicts under preferred_key or candidate keys (both lists and dict-of-records):
+      {"patients": [...]}, {"patients": {"0": {...}, "1": {...}}}
+      {"appointments": [...]}, {"appointments": {"0": {...}, "1": {...}}}
+    - Direct dict of records:
+      {"0": {...}, "1": {...}} or {"id_1": {...}, "id_2": {...}}
+    - Nested 'results', 'data', or 'items' wrappers.
     """
     if data is None:
         return []
     if isinstance(data, list):
         return data
-    if isinstance(data, Mapping):
-        if preferred_key and preferred_key in data and isinstance(data[preferred_key], list):
-            return data[preferred_key]
-        for candidate in ("patients", "appointments", "results", "items", "data", "availabilities"):
-            if candidate in data and isinstance(data[candidate], list):
-                return data[candidate]
-        if data and all(isinstance(v, Mapping) for v in data.values()):
-            return list(data.values())
-        if not data:
-            return []
+    if not isinstance(data, Mapping):
+        return []
+
+    def _as_record_list(val: Any) -> list[Any] | None:
+        if val is None:
+            return None
+        if isinstance(val, list):
+            return val
+        if isinstance(val, Mapping):
+            if not val:
+                return []
+            if all(isinstance(v, Mapping) for v in val.values()):
+                return list(val.values())
+        return None
+
+    def _find_in_dict(d: Mapping[str, Any], key: str) -> Any:
+        target = key.casefold()
+        for k, v in d.items():
+            if str(k).casefold() == target:
+                return v
+        return None
+
+    # 1. If data has a 'results' container (official Nookal shape: {"api_call": "...", "results": {...}})
+    results_container = _find_in_dict(data, "results")
+    if results_container is not None:
+        if isinstance(results_container, Mapping):
+            if preferred_key:
+                preferred_val = _find_in_dict(results_container, preferred_key)
+                if preferred_val is not None:
+                    inner = _as_record_list(preferred_val)
+                    if inner is not None:
+                        return inner
+            for candidate in ("patients", "appointments", "availabilities", "items", "records"):
+                cand_val = _find_in_dict(results_container, candidate)
+                if cand_val is not None:
+                    inner = _as_record_list(cand_val)
+                    if inner is not None:
+                        return inner
+            rec_list = _as_record_list(results_container)
+            if rec_list is not None:
+                return rec_list
+        else:
+            rec_list = _as_record_list(results_container)
+            if rec_list is not None:
+                return rec_list
+
+    # 2. Check preferred_key directly on data
+    if preferred_key:
+        preferred_val = _find_in_dict(data, preferred_key)
+        if preferred_val is not None:
+            rec_list = _as_record_list(preferred_val)
+            if rec_list is not None:
+                return rec_list
+
+    # 3. Check candidate keys directly on data
+    for candidate in ("patients", "appointments", "availabilities", "items", "records", "data"):
+        cand_val = _find_in_dict(data, candidate)
+        if cand_val is not None:
+            if isinstance(cand_val, Mapping) and candidate == "data":
+                return _unwrap_collection(cand_val, preferred_key)
+            rec_list = _as_record_list(cand_val)
+            if rec_list is not None:
+                return rec_list
+
+    # 4. Check if data itself is a dict of records
+    rec_list = _as_record_list(data)
+    if rec_list is not None:
+        return rec_list
+
     return []
 
 
@@ -1003,13 +1072,23 @@ class HttpNookalClient(NookalClient):
         if dob_raw:
             if isinstance(dob_raw, date):
                 parsed_dob = dob_raw
-            elif isinstance(dob_raw, str) and len(dob_raw) >= 10:
+            elif isinstance(dob_raw, str):
+                s = dob_raw.strip()
                 try:
-                    parsed_dob = date.fromisoformat(dob_raw[:10])
+                    parsed_dob = date.fromisoformat(s[:10])
                 except ValueError:
-                    pass
+                    try:
+                        parsed_dob = datetime.strptime(s[:10], "%d/%m/%Y").date()
+                    except ValueError:
+                        pass
 
-        suburb = data.get("suburb") or data.get("Suburb") or data.get("address")
+        suburb = data.get("suburb") or data.get("Suburb")
+        if not suburb and isinstance(data.get("address"), Mapping):
+            addr = data["address"]
+            suburb = addr.get("suburb") or addr.get("Suburb") or addr.get("city") or addr.get("City")
+        elif not suburb and isinstance(data.get("address"), str):
+            suburb = data.get("address")
+
         ref_id = data.get("referrer_id") or data.get("referrerID")
 
         return PatientRef(
@@ -1037,22 +1116,49 @@ class HttpNookalClient(NookalClient):
             or data.get("patient_id")
             or data.get("PatientID")
         )
+        if not pid and isinstance(data.get("patient"), Mapping):
+            pid = data["patient"].get("ID") or data["patient"].get("id") or data["patient"].get("patient_id")
+
         if not aid or not pid:
             raise NookalValidationError("appointment payload missing required fields (id, patient_id)")
 
         appt_date_raw = data.get("date") or data.get("appointment_date")
-        start_time_raw = data.get("startTime") or data.get("start_time")
+        start_time_raw = data.get("startTime") or data.get("start_time") or data.get("time")
         end_time_raw = data.get("endTime") or data.get("end_time")
 
         starts_at = None
         if appt_date_raw and start_time_raw:
-            try:
-                starts_at = datetime.fromisoformat(f"{appt_date_raw}T{start_time_raw}")
-            except ValueError:
-                pass
+            clean_date = str(appt_date_raw).strip()
+            clean_time = str(start_time_raw).strip()
+            for fmt in (
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%dT%H:%M",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%d %I:%M %p",
+                "%Y-%m-%d %I:%M%p",
+                "%d/%m/%Y %H:%M:%S",
+                "%d/%m/%Y %H:%M",
+            ):
+                try:
+                    s = f"{clean_date}T{clean_time}".replace(" ", "T", 1) if "T" in fmt else f"{clean_date} {clean_time}"
+                    starts_at = datetime.strptime(s, fmt)
+                    break
+                except ValueError:
+                    pass
+            if starts_at is None:
+                try:
+                    starts_at = datetime.fromisoformat(f"{clean_date}T{clean_time}")
+                except ValueError:
+                    pass
 
         if starts_at is None:
-            starts = data.get("starts_at") or data.get("start") or data.get("datetime")
+            starts = (
+                data.get("starts_at")
+                or data.get("start")
+                or data.get("datetime")
+                or data.get("appointment_datetime")
+            )
             if isinstance(starts, datetime):
                 starts_at = starts
             elif starts:
@@ -1066,10 +1172,29 @@ class HttpNookalClient(NookalClient):
 
         ends_at = None
         if appt_date_raw and end_time_raw:
-            try:
-                ends_at = datetime.fromisoformat(f"{appt_date_raw}T{end_time_raw}")
-            except ValueError:
-                pass
+            clean_date = str(appt_date_raw).strip()
+            clean_time = str(end_time_raw).strip()
+            for fmt in (
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%dT%H:%M",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%d %I:%M %p",
+                "%Y-%m-%d %I:%M%p",
+                "%d/%m/%Y %H:%M:%S",
+                "%d/%m/%Y %H:%M",
+            ):
+                try:
+                    s = f"{clean_date}T{clean_time}".replace(" ", "T", 1) if "T" in fmt else f"{clean_date} {clean_time}"
+                    ends_at = datetime.strptime(s, fmt)
+                    break
+                except ValueError:
+                    pass
+            if ends_at is None:
+                try:
+                    ends_at = datetime.fromisoformat(f"{clean_date}T{clean_time}")
+                except ValueError:
+                    pass
 
         if ends_at is None:
             ends = data.get("ends_at") or data.get("end")
@@ -1081,19 +1206,23 @@ class HttpNookalClient(NookalClient):
                 except ValueError:
                     pass
 
-        if str(data.get("cancelled", "")).strip() in ("1", "true", "True") or data.get("cancellationDate"):
+        cancelled_val = str(data.get("cancelled", "")).strip()
+        dna_val = str(data.get("DNA") or data.get("dna") or data.get("did_not_arrive") or "").strip()
+        arrived_val = str(data.get("arrived") or data.get("is_arrived") or "").strip()
+
+        if cancelled_val in ("1", "true", "True") or data.get("cancellationDate"):
             status = "cancelled"
-        elif str(data.get("DNA", "")).strip() in ("1", "true", "True"):
+        elif dna_val in ("1", "true", "True"):
             status = "dna"
-        elif str(data.get("arrived", "")).strip() in ("1", "true", "True"):
+        elif arrived_val in ("1", "true", "True"):
             status = "arrived"
         elif data.get("status"):
-            status = str(data["status"])
+            status = str(data["status"]).lower()
         else:
             status = "booked"
 
-        loc_id = data.get("locationID") or data.get("location_id")
-        prac_id = data.get("practitionerID") or data.get("practitioner_id")
+        loc_id = data.get("locationID") or data.get("location_id") or data.get("LocationID")
+        prac_id = data.get("practitionerID") or data.get("practitioner_id") or data.get("PractitionerID")
 
         return Appointment(
             appointment_id=str(aid),

@@ -1,29 +1,152 @@
 {% extends "base.html" %}
 {% block title %}Patient {{ patient.patient_id }} — Back to Ease{% endblock %}
+{% block topbar_title %}Patient Details{% endblock %}
 {% block content %}
-<h1>Patient {{ patient.patient_id }}</h1>
-<div class="panel">
-  <p>Name: {{ patient.display_name or "—" }}</p>
-  <p>Suburb: {{ patient.suburb or "—" }}</p>
-  <p>Age: {{ patient.age if patient.age is not none else "—" }}</p>
-  <p>Phone: {{ patient.phone or "—" }}</p>
-  <p>Email: {{ patient.email or "—" }}</p>
-  <p>Referrer: {{ patient.referrer_id or "—" }}</p>
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center;">
+    <a href="/patients" class="btn btn-secondary btn-sm">← Back to Patients</a>
+    <h1 class="page-title">{{ patient.display_name or ("Patient #" ~ patient.patient_id) }}</h1>
+    <span class="badge badge-neutral">ID: {{ patient.patient_id }}</span>
+  </div>
 </div>
-<h2>Appointments</h2>
-<table>
-  <thead><tr><th>ID</th><th>Starts</th><th>Status</th><th>Practitioner</th></tr></thead>
-  <tbody>
-  {% for a in patient.appointments %}
-    <tr>
-      <td>{{ a.appointment_id }}</td>
-      <td>{{ a.starts_at }}</td>
-      <td>{{ a.status or "—" }}</td>
-      <td>{{ a.practitioner_id or "—" }}</td>
-    </tr>
-  {% else %}
-    <tr><td colspan="4">None</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Patient Information</div>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--sp-4);">
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Full Name</div>
+      <div style="font-size: 1rem; font-weight: 600; margin-top: var(--sp-1);">{{ patient.display_name or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Suburb</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.suburb or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Age</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.age if patient.age is not none else "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Phone</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.phone or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Email</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.email or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Referring Doctor</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.referrer_id or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Last Appointment</div>
+      <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ patient.last_appointment_date or "—" }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Appointments ({{ patient.appointments|length }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Appointment ID</th>
+          <th>Date & Time</th>
+          <th>Status</th>
+          <th>Practitioner</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for a in patient.appointments %}
+        <tr>
+          <td><code>{{ a.appointment_id }}</code></td>
+          <td><strong>{{ a.starts_at }}</strong></td>
+          <td>
+            {% if a.status == "booked" %}
+              <span class="badge badge-info">Booked</span>
+            {% elif a.status == "completed" or a.status == "arrived" %}
+              <span class="badge badge-success">{{ a.status|capitalize }}</span>
+            {% elif a.status == "cancelled" %}
+              <span class="badge badge-error">Cancelled</span>
+            {% elif a.status %}
+              <span class="badge badge-neutral">{{ a.status|capitalize }}</span>
+            {% else %}
+              <span class="badge badge-neutral">—</span>
+            {% endif %}
+          </td>
+          <td>{{ a.practitioner_id or "—" }}</td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="4">
+            <div class="empty-state">
+              <div class="empty-state-title">No appointments found</div>
+              <div class="empty-state-text">No recorded appointments for this patient.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-title">Associated Documents ({{ patient.documents|length }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Document ID</th>
+          <th>Title</th>
+          <th>Template</th>
+          <th>Status</th>
+          <th style="text-align: right;">Review Action</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for d in patient.documents %}
+        <tr>
+          <td><code>{{ d.document_id }}</code></td>
+          <td><strong>{{ d.title or "Untitled Document" }}</strong></td>
+          <td>{{ d.template_id or "—" }}</td>
+          <td>
+            {% if d.status == "approved" %}
+              <span class="badge badge-success">Approved</span>
+            {% elif d.status == "pending" %}
+              <span class="badge badge-warning">Pending</span>
+            {% elif d.status == "rejected" %}
+              <span class="badge badge-error">Rejected</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ d.status or "—" }}</span>
+            {% endif %}
+          </td>
+          <td style="text-align: right;">
+            {% if d.task_id %}
+              <a href="/approvals" class="btn btn-secondary btn-sm">Review in Queue</a>
+            {% else %}
+              <span style="color: var(--text-muted); font-size: 0.85rem;">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="5">
+            <div class="empty-state">
+              <div class="empty-state-title">No associated documents</div>
+              <div class="empty-state-text">No clinical letters or documents on file for this patient.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}

@@ -560,3 +560,162 @@ def test_unimplemented_endpoints_raise_not_implemented() -> None:
     with pytest.raises(NotImplementedError) as exc_info:
         nookal.upsert_referrer({"name": "Dr. Smith"})
     assert "referrer endpoint" in str(exc_info.value)
+
+
+def test_search_patients_with_official_nookal_envelope() -> None:
+    """
+    Verifies that search_patients correctly parses the official Nookal API response shape:
+    {"status": "success", "data": {"api_call": "getPatients", "results": {"patients": [...]}}}
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "getPatients" in str(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "api_call": "getPatients",
+                    "results": {
+                        "patients": [
+                            {
+                                "ID": "101",
+                                "FirstName": "Sarah",
+                                "LastName": "Connor",
+                                "DOB": "1985-05-12",
+                                "Mobile": "+61411222333",
+                                "Email": "sarah@example.com",
+                                "address": {
+                                    "city": "Melbourne",
+                                    "state": "VIC",
+                                },
+                            },
+                            {
+                                "ID": "102",
+                                "FirstName": "John",
+                                "LastName": "Connor",
+                                "DOB": "2000-02-28",
+                                "Mobile": "+61499887766",
+                                "Email": "john@example.com",
+                                "suburb": "Richmond",
+                            },
+                        ]
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    patients = nookal.search_patients()
+    assert len(patients) == 2
+    assert patients[0].patient_id == "101"
+    assert patients[0].display_name == "Sarah Connor"
+    assert patients[0].phone == "+61411222333"
+    assert patients[0].email == "sarah@example.com"
+    assert patients[0].suburb == "Melbourne"
+    assert patients[0].date_of_birth == date(1985, 5, 12)
+
+    assert patients[1].patient_id == "102"
+    assert patients[1].display_name == "John Connor"
+    assert patients[1].suburb == "Richmond"
+
+    # Filtered search
+    filtered = nookal.search_patients(suburb="Richmond")
+    assert len(filtered) == 1
+    assert filtered[0].patient_id == "102"
+
+
+def test_list_appointments_with_official_nookal_envelope() -> None:
+    """
+    Verifies that list_appointments correctly parses the official Nookal API response shape:
+    {"status": "success", "data": {"api_call": "getAppointments", "results": {"appointments": [...]}}}
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "getAppointments" in str(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "api_call": "getAppointments",
+                    "results": {
+                        "appointments": [
+                            {
+                                "ID": "appt_501",
+                                "patientID": "101",
+                                "date": "2026-09-15",
+                                "startTime": "09:30:00",
+                                "endTime": "10:00:00",
+                                "cancelled": "0",
+                                "DNA": "0",
+                                "arrived": "1",
+                                "locationID": "loc_10",
+                                "practitionerID": "prac_5",
+                            },
+                            {
+                                "ID": "appt_502",
+                                "patientID": "102",
+                                "date": "2026-09-15",
+                                "startTime": "14:00:00",
+                                "endTime": "14:45:00",
+                                "cancelled": "1",
+                                "cancellationDate": "2026-09-14 11:00:00",
+                            },
+                        ]
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    appts = nookal.list_appointments()
+    assert len(appts) == 2
+    assert appts[0].appointment_id == "appt_501"
+    assert appts[0].patient_id == "101"
+    assert appts[0].starts_at == datetime(2026, 9, 15, 9, 30)
+    assert appts[0].status == "arrived"
+    assert appts[0].location_id == "loc_10"
+    assert appts[0].practitioner_id == "prac_5"
+
+    assert appts[1].appointment_id == "appt_502"
+    assert appts[1].patient_id == "102"
+    assert appts[1].status == "cancelled"
+
+
+def test_dict_of_records_envelope_support() -> None:
+    """
+    Verifies that PHP associative array dict-of-records collections
+    {"results": {"patients": {"0": {...}, "1": {...}}}} are parsed.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "api_call": "getPatients",
+                    "results": {
+                        "patients": {
+                            "0": {"ID": "201", "FirstName": "Kyle", "LastName": "Reese"},
+                            "1": {"ID": "202", "FirstName": "Miles", "LastName": "Dyson"},
+                        }
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    patients = nookal.search_patients()
+    assert len(patients) == 2
+    assert patients[0].patient_id == "201"
+    assert patients[0].display_name == "Kyle Reese"
+    assert patients[1].patient_id == "202"
+    assert patients[1].display_name == "Miles Dyson"

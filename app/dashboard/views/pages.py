@@ -1,6 +1,7 @@
 """Server-rendered operational pages — data still loaded via authorized API services."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -8,25 +9,28 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.dashboard.auth import Session, User
-from app.dashboard.authorization import Permission
+from app.dashboard.authorization import AuthorizationError, Permission
 from app.dashboard.container import DashboardContainer
 from app.dashboard.dependencies import (
     approval_service,
     appointment_service,
+    audit_viewer_service,
     get_container,
     get_correlation_id,
     get_session,
+    marketing_service,
     patient_service,
     referrer_service,
     require_permission,
     require_user,
     system_service,
     review_service,
-    get_container,
 )
 from app.dashboard.services import (
     ApprovalService,
     AppointmentService,
+    AuditViewerService,
+    MarketingService,
     PatientService,
     ReferrerConflictService,
     SystemService,
@@ -40,6 +44,14 @@ def _templates(request: Request) -> Jinja2Templates:
     return request.app.state.templates
 
 
+def _can(container: DashboardContainer, role: str, permission: Permission) -> bool:
+    try:
+        container.policy.require(role, permission)
+        return True
+    except AuthorizationError:
+        return False
+
+
 def _base_ctx(
     request: Request,
     user: User | None,
@@ -50,23 +62,11 @@ def _base_ctx(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ctx: dict[str, Any] = {
+        "request": request,
         "user": user,
         "csrf_token": session.csrf_token if session else "",
         "pending_approvals": pending,
         "kill_switch_active": kill_switch,
-        "nav": [
-            ("Overview", "/"),
-            ("Patients", "/patients"),
-            ("Appointments", "/appointments"),
-            ("Approval Queue", "/approvals"),
-            ("Documents", "/documents"),
-            ("Referrer Conflicts", "/referrers"),
-            ("Audit", "/audit"),
-            ("Marketing", "/marketing"),
-            ("System", "/system"),
-            ("Finance review", "/finance/expenses"),
-            ("Case flags", "/cases"),
-        ],
     }
     if extra:
         ctx.update(extra)
@@ -119,15 +119,44 @@ async def login_form(
     return resp
 
 
+@router.get("/logout", response_model=None)
+async def logout_page(
+    request: Request,
+    container: Annotated[DashboardContainer, Depends(get_container)],
+    session: Annotated[Session | None, Depends(get_session)],
+) -> RedirectResponse:
+    if session is not None:
+        container.sessions.invalidate(session.session_id)
+        container.audit(
+            actor=session.user_id,
+            action="dashboard.logout",
+            target_type="system",
+            target_id="auth",
+            result="success",
+            metadata={"role": session.role, "via": "page"},
+        )
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(container.session_cookie_name, path="/")
+    return resp
+
+
 @router.get("/", response_class=HTMLResponse)
 async def overview(
     request: Request,
     user: Annotated[User, Depends(require_user)],
     session: Annotated[Session | None, Depends(get_session)],
     sys_svc: Annotated[SystemService, Depends(system_service)],
+    appt_svc: Annotated[AppointmentService, Depends(appointment_service)],
+    appr_svc: Annotated[ApprovalService, Depends(approval_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> HTMLResponse:
     status = sys_svc.status(actor=user.user_id, role=user.role, correlation_id=correlation_id)
+    upcoming = appt_svc.list_upcoming(
+        actor=user.user_id, role=user.role, correlation_id=correlation_id,
+    )
+    pending_tasks = appr_svc.list_tasks(
+        actor=user.user_id, role=user.role, correlation_id=correlation_id,
+    )
     return _templates(request).TemplateResponse(
         request,
         name="overview.html",
@@ -137,9 +166,39 @@ async def overview(
             session,
             pending=status.pending_approvals,
             kill_switch=status.kill_switch_active,
-            extra={"status": status},
+            extra={
+                "status": status,
+                "upcoming_appointments": upcoming[:5],
+                "upcoming_count": len(upcoming),
+                "pending_tasks": pending_tasks[:5],
+                "pending_count": len(pending_tasks),
+            },
         ),
     )
+
+
+def _parse_filter_int(val: str | None) -> int | None:
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+
+def _parse_filter_date(val: str | None) -> date | None:
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(s)
+    except ValueError:
+        return None
 
 
 @router.get("/patients", response_class=HTMLResponse)
@@ -148,19 +207,70 @@ async def patients_page(
     user: Annotated[User, Depends(require_permission(Permission.PATIENT_SEARCH))],
     session: Annotated[Session | None, Depends(get_session)],
     svc: Annotated[PatientService, Depends(patient_service)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
     suburb: str | None = None,
+    age_min: str | None = None,
+    age_max: str | None = None,
+    appointment_from: str | None = None,
+    appointment_to: str | None = None,
+    referrer_id: str | None = None,
 ) -> HTMLResponse:
+    clean_suburb = suburb.strip() if suburb and suburb.strip() else None
+    clean_age_min = _parse_filter_int(age_min)
+    clean_age_max = _parse_filter_int(age_max)
+    clean_appt_from = _parse_filter_date(appointment_from)
+    clean_appt_to = _parse_filter_date(appointment_to)
+    clean_referrer_id = referrer_id.strip() if referrer_id and referrer_id.strip() else None
+
     results = svc.search(
         actor=user.user_id,
         role=user.role,
         correlation_id=correlation_id,
-        suburb=suburb,
+        suburb=clean_suburb,
+        age_min=clean_age_min,
+        age_max=clean_age_max,
+        appointment_from=clean_appt_from,
+        appointment_to=clean_appt_to,
+        referrer_id=clean_referrer_id,
     )
+
+    known_referrers: list[dict[str, str]] = []
+    referrers_supported = True
+    try:
+        ref_list = container.nookal.list_referrers()
+        known_referrers = [
+            {"id": r.referrer_id, "name": f"{r.name} ({r.referrer_id})" if r.name else r.referrer_id}
+            for r in ref_list
+        ]
+    except NotImplementedError:
+        referrers_supported = False
+
+    filters = {
+        "suburb": clean_suburb or "",
+        "age_min": str(clean_age_min) if clean_age_min is not None else "",
+        "age_max": str(clean_age_max) if clean_age_max is not None else "",
+        "appointment_from": clean_appt_from.isoformat() if clean_appt_from else "",
+        "appointment_to": clean_appt_to.isoformat() if clean_appt_to else "",
+        "referrer_id": clean_referrer_id or "",
+    }
+    has_active_filters = any(bool(v) for v in filters.values())
+
     return _templates(request).TemplateResponse(
         request,
         name="patients.html",
-        context=_base_ctx(request, user, session, extra={"results": results, "suburb": suburb or ""}),
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            extra={
+                "results": results,
+                "filters": filters,
+                "has_active_filters": has_active_filters,
+                "known_referrers": known_referrers,
+                "referrers_supported": referrers_supported,
+            },
+        ),
     )
 
 
@@ -191,18 +301,40 @@ async def appointments_page(
     request: Request,
     user: Annotated[User, Depends(require_permission(Permission.APPOINTMENT_VIEW))],
     session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     svc: Annotated[AppointmentService, Depends(appointment_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
+    date_from: str | None = None,
+    date_to: str | None = None,
+    patient_id: str | None = None,
 ) -> HTMLResponse:
+    clean_date_from = _parse_filter_date(date_from)
+    clean_date_to = _parse_filter_date(date_to)
+    clean_patient = patient_id.strip() if patient_id and patient_id.strip() else None
     items = svc.list_upcoming(
         actor=user.user_id,
         role=user.role,
         correlation_id=correlation_id,
+        date_from=clean_date_from,
+        date_to=clean_date_to,
+        patient_id=clean_patient,
     )
+    can_change = _can(container, user.role, Permission.APPOINTMENT_CHANGE)
+    appt_filters = {
+        "date_from": clean_date_from.isoformat() if clean_date_from else "",
+        "date_to": clean_date_to.isoformat() if clean_date_to else "",
+        "patient_id": clean_patient or "",
+    }
+    has_appt_filters = any(bool(v) for v in appt_filters.values())
     return _templates(request).TemplateResponse(
         request,
         name="appointments.html",
-        context=_base_ctx(request, user, session, extra={"appointments": items}),
+        context=_base_ctx(request, user, session, extra={
+            "appointments": items,
+            "filters": appt_filters,
+            "has_active_filters": has_appt_filters,
+            "can_change": can_change,
+        }),
     )
 
 
@@ -211,6 +343,7 @@ async def approvals_page(
     request: Request,
     user: Annotated[User, Depends(require_permission(Permission.APPROVAL_VIEW))],
     session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     svc: Annotated[ApprovalService, Depends(approval_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> HTMLResponse:
@@ -222,7 +355,17 @@ async def approvals_page(
     return _templates(request).TemplateResponse(
         request,
         name="approvals.html",
-        context=_base_ctx(request, user, session, pending=len(tasks), extra={"tasks": tasks}),
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            pending=len(tasks),
+            extra={
+                "tasks": tasks,
+                "can_approve": _can(container, user.role, Permission.APPROVAL_APPROVE),
+                "can_reject": _can(container, user.role, Permission.APPROVAL_REJECT),
+            },
+        ),
     )
 
 
@@ -231,6 +374,7 @@ async def documents_page(
     request: Request,
     user: Annotated[User, Depends(require_permission(Permission.APPROVAL_VIEW))],
     session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     svc: Annotated[ApprovalService, Depends(approval_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> HTMLResponse:
@@ -242,7 +386,16 @@ async def documents_page(
     return _templates(request).TemplateResponse(
         request,
         name="documents.html",
-        context=_base_ctx(request, user, session, extra={"tasks": tasks}),
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            extra={
+                "tasks": tasks,
+                "can_approve": _can(container, user.role, Permission.APPROVAL_APPROVE),
+                "can_reject": _can(container, user.role, Permission.APPROVAL_REJECT),
+            },
+        ),
     )
 
 
@@ -251,12 +404,21 @@ async def finance_documents_page(
     request: Request,
     user: Annotated[User, Depends(require_permission(Permission.DOCUMENT_REVIEW))],
     session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     svc: Annotated[ReviewService, Depends(review_service)],
 ) -> HTMLResponse:
     return _templates(request).TemplateResponse(
         request,
         name="finance_documents.html",
-        context=_base_ctx(request, user, session, extra={"documents": list(svc.documents.values())}),
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            extra={
+                "documents": list(svc.documents.values()),
+                "can_review": _can(container, user.role, Permission.DOCUMENT_REVIEW),
+            },
+        ),
     )
 
 
@@ -265,12 +427,21 @@ async def finance_expenses_page(
     request: Request,
     user: Annotated[User, Depends(require_permission(Permission.EXPENSE_REVIEW))],
     session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     svc: Annotated[ReviewService, Depends(review_service)],
 ) -> HTMLResponse:
     return _templates(request).TemplateResponse(
         request,
         name="finance_expenses.html",
-        context=_base_ctx(request, user, session, extra={"expenses": svc.list_expenses()}),
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            extra={
+                "expenses": svc.list_expenses(),
+                "can_confirm": _can(container, user.role, Permission.EXPENSE_REVIEW),
+            },
+        ),
     )
 
 
@@ -286,7 +457,15 @@ async def cases_page(
     return _templates(request).TemplateResponse(
         request,
         name="cases.html",
-        context=_base_ctx(request, user, session, extra={"cases": cases}),
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            extra={
+                "cases": cases,
+                "can_acknowledge": _can(container, user.role, Permission.CASE_ACKNOWLEDGE),
+            },
+        ),
     )
 
 
@@ -295,6 +474,7 @@ async def referrers_page(
     request: Request,
     user: Annotated[User, Depends(require_permission(Permission.REFERRER_VIEW))],
     session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     svc: Annotated[ReferrerConflictService, Depends(referrer_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> HTMLResponse:
@@ -306,7 +486,15 @@ async def referrers_page(
     return _templates(request).TemplateResponse(
         request,
         name="referrers.html",
-        context=_base_ctx(request, user, session, extra={"conflicts": conflicts}),
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            extra={
+                "conflicts": conflicts,
+                "can_resolve": _can(container, user.role, Permission.REFERRER_RESOLVE),
+            },
+        ),
     )
 
 
@@ -315,11 +503,45 @@ async def audit_page(
     request: Request,
     user: Annotated[User, Depends(require_permission(Permission.AUDIT_VIEW))],
     session: Annotated[Session | None, Depends(get_session)],
+    svc: Annotated[AuditViewerService, Depends(audit_viewer_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
+    actor: str | None = None,
+    action: str | None = None,
+    result: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> HTMLResponse:
+    clean_actor = actor.strip() if actor and actor.strip() else None
+    clean_action = action.strip() if action and action.strip() else None
+    clean_result = result.strip() if result and result.strip() else None
+    clean_from = _parse_filter_date(date_from)
+    clean_to = _parse_filter_date(date_to)
+    events = svc.query(
+        actor=user.user_id,
+        role=user.role,
+        correlation_id=correlation_id,
+        filter_actor=clean_actor,
+        filter_action=clean_action,
+        filter_result=clean_result,
+        date_from=clean_from,
+        date_to=clean_to,
+        limit=200,
+    )
+    audit_filters = {
+        "actor": clean_actor or "",
+        "action": clean_action or "",
+        "result": clean_result or "",
+        "date_from": clean_from.isoformat() if clean_from else "",
+        "date_to": clean_to.isoformat() if clean_to else "",
+    }
     return _templates(request).TemplateResponse(
         request,
         name="audit.html",
-        context=_base_ctx(request, user, session),
+        context=_base_ctx(request, user, session, extra={
+            "events": events,
+            "filters": audit_filters,
+            "event_count": len(events),
+        }),
     )
 
 
@@ -328,11 +550,21 @@ async def marketing_page(
     request: Request,
     user: Annotated[User, Depends(require_permission(Permission.MARKETING_VIEW))],
     session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
+    svc: Annotated[MarketingService, Depends(marketing_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> HTMLResponse:
+    lists = svc.list_lists(actor=user.user_id, role=user.role, correlation_id=correlation_id)
+    campaigns = svc.list_campaigns(actor=user.user_id, role=user.role, correlation_id=correlation_id)
+    can_manage = _can(container, user.role, Permission.MARKETING_MANAGE)
     return _templates(request).TemplateResponse(
         request,
         name="marketing.html",
-        context=_base_ctx(request, user, session),
+        context=_base_ctx(request, user, session, extra={
+            "lists": lists,
+            "campaigns": campaigns,
+            "can_manage": can_manage,
+        }),
     )
 
 
@@ -341,6 +573,7 @@ async def system_page(
     request: Request,
     user: Annotated[User, Depends(require_permission(Permission.SYSTEM_VIEW))],
     session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     sys_svc: Annotated[SystemService, Depends(system_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> HTMLResponse:
@@ -354,6 +587,9 @@ async def system_page(
             session,
             pending=status.pending_approvals,
             kill_switch=status.kill_switch_active,
-            extra={"status": status},
+            extra={
+                "status": status,
+                "can_toggle_kill_switch": _can(container, user.role, Permission.SYSTEM_KILL_SWITCH),
+            },
         ),
     )

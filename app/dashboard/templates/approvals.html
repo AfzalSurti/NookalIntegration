@@ -1,23 +1,172 @@
 {% extends "base.html" %}
 {% block title %}Approvals — Back to Ease{% endblock %}
+{% block topbar_title %}Approval Queue{% endblock %}
 {% block content %}
-<h1>Approval Queue</h1>
-<table>
-  <thead><tr><th>ID</th><th>Type</th><th>Patient</th><th>Status</th><th>Template</th><th>Created</th></tr></thead>
-  <tbody>
-  {% for t in tasks %}
-    <tr>
-      <td>{{ t.id[:8] }}…</td>
-      <td>{{ t.type }}</td>
-      <td>{{ t.patient_id }}</td>
-      <td>{{ t.status }}</td>
-      <td>{{ t.safe_draft.template_id or "—" }}</td>
-      <td>{{ t.created_at }}</td>
-    </tr>
-  {% else %}
-    <tr><td colspan="6">No pending tasks</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-<p class="meta">Approve/reject via API with CSRF header — UI actions use the same ApprovalQueue.</p>
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+    <h1 class="page-title">Approval Queue</h1>
+    <span class="badge {% if tasks|length > 0 %}badge-warning{% else %}badge-success{% endif %}">
+      {{ tasks|length }} pending review
+    </span>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Tasks Awaiting Clinician / Administrative Sign-Off</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Task ID</th>
+          <th>Type</th>
+          <th>Patient</th>
+          <th>Status</th>
+          <th>Template</th>
+          <th>Created</th>
+          {% if can_approve or can_reject %}
+          <th style="text-align: right;">Review Action</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for t in tasks %}
+        <tr>
+          <td><code>{{ t.id[:8] }}…</code></td>
+          <td><span class="badge badge-info">{{ t.type }}</span></td>
+          <td>
+            <a href="/patients/{{ t.patient_id }}"><strong>{{ t.patient_id }}</strong></a>
+          </td>
+          <td>
+            {% if t.status == "pending" %}
+              <span class="badge badge-warning">Pending Review</span>
+            {% elif t.status == "approved" %}
+              <span class="badge badge-success">Approved</span>
+            {% elif t.status == "rejected" %}
+              <span class="badge badge-error">Rejected</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ t.status }}</span>
+            {% endif %}
+          </td>
+          <td>{{ t.safe_draft.template_id or "—" }}</td>
+          <td>{{ t.created_at }}</td>
+          {% if can_approve or can_reject %}
+          <td style="text-align: right;">
+            {% if t.status == "pending" %}
+            <div class="flex gap-2" style="justify-content: flex-end;">
+              {% if can_approve %}
+              <button type="button" class="btn btn-primary btn-sm" onclick="openApprovalModal('approve', '{{ t.id }}', '{{ t.patient_id }}')">Approve</button>
+              {% endif %}
+              {% if can_reject %}
+              <button type="button" class="btn btn-outline btn-sm" style="color: var(--error); border-color: var(--error-border);" onclick="openApprovalModal('reject', '{{ t.id }}', '{{ t.patient_id }}')">Reject</button>
+              {% endif %}
+            </div>
+            {% else %}
+            <span style="color: var(--text-muted); font-size: 0.85rem;">Completed</span>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="{% if can_approve or can_reject %}7{% else %}6{% endif %}">
+            <div class="empty-state">
+              <div class="empty-state-title">No pending tasks</div>
+              <div class="empty-state-text">All clinical drafts and operational workflows have been reviewed.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="info-banner">
+  Safe Review Mode: Task drafts are sanitized to prevent accidental clinical data leakage. Approvals directly transition the underlying clinical queue.
+</div>
+
+<!-- Approval Action Modal -->
+<div class="modal-backdrop" id="approval-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="approval-modal-title">Review Task</div>
+      <button class="modal-close" onclick="closeModal('approval-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="approval-modal-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="approval-form" onsubmit="submitApproval(event)">
+        <input type="hidden" id="approval-action" name="action">
+        <input type="hidden" id="approval-task-id" name="task_id">
+        <p style="margin-bottom: var(--sp-4); font-size: 0.9rem;" id="approval-prompt-text">
+          Are you sure you want to approve this task?
+        </p>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="approval-notes">Reviewer Notes (Optional)</label>
+          <textarea id="approval-notes" name="notes" rows="3" placeholder="Add clinical rationale or review notes..."></textarea>
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('approval-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="approval-submit-btn">Confirm</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openApprovalModal(action, taskId, patientId) {
+  document.getElementById('approval-action').value = action;
+  document.getElementById('approval-task-id').value = taskId;
+  document.getElementById('approval-notes').value = '';
+  document.getElementById('approval-modal-error').style.display = 'none';
+  const isApprove = (action === 'approve');
+  document.getElementById('approval-modal-title').textContent = isApprove ? 'Approve Task' : 'Reject Task';
+  document.getElementById('approval-prompt-text').textContent = isApprove
+    ? 'Are you sure you want to approve this task for patient ' + patientId + '? This will authorize dispatch or filing.'
+    : 'Are you sure you want to reject this task? This will prevent dispatch and mark the review as rejected.';
+  const btn = document.getElementById('approval-submit-btn');
+  btn.textContent = isApprove ? 'Confirm Approval' : 'Confirm Rejection';
+  btn.className = isApprove ? 'btn btn-primary' : 'btn btn-outline';
+  if (!isApprove) {
+    btn.style.color = 'var(--error)';
+    btn.style.borderColor = 'var(--error-border)';
+  } else {
+    btn.style.color = '';
+    btn.style.borderColor = '';
+  }
+  openModal('approval-modal');
+}
+
+function submitApproval(e) {
+  e.preventDefault();
+  const action = document.getElementById('approval-action').value;
+  const taskId = document.getElementById('approval-task-id').value;
+  const notes = document.getElementById('approval-notes').value.trim() || null;
+  const errorDiv = document.getElementById('approval-modal-error');
+  errorDiv.style.display = 'none';
+
+  const btn = document.getElementById('approval-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Processing...';
+
+  const endpoint = '/api/approvals/' + encodeURIComponent(taskId) + '/' + action;
+  const body = notes ? { notes: notes } : {};
+
+  apiCall('POST', endpoint, body)
+    .then(() => {
+      closeModal('approval-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Try Again';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to submit review.';
+    });
+}
+</script>
 {% endblock %}

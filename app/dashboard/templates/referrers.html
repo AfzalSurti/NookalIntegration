@@ -1,22 +1,170 @@
 {% extends "base.html" %}
 {% block title %}Referrer Conflicts — Back to Ease{% endblock %}
+{% block topbar_title %}Doctor & Referrer Matching{% endblock %}
 {% block content %}
-<h1>Referrer Conflicts</h1>
-<table>
-  <thead><tr><th>ID</th><th>Kind</th><th>Candidate</th><th>Provider #</th><th>Matches</th><th>Reason</th></tr></thead>
-  <tbody>
-  {% for c in conflicts %}
-    <tr>
-      <td>{{ c.conflict_id[:8] }}…</td>
-      <td>{{ c.kind }}</td>
-      <td>{{ c.candidate_name or "—" }}</td>
-      <td>{{ c.candidate_provider_number or "—" }}</td>
-      <td>{{ c.possible_matches|join(", ") or "—" }}</td>
-      <td>{{ c.reason or "—" }}</td>
-    </tr>
-  {% else %}
-    <tr><td colspan="6">No conflicts queued</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+    <h1 class="page-title">Referrer Conflicts & Reconciliation</h1>
+    <span class="badge {% if conflicts|length > 0 %}badge-warning{% else %}badge-success{% endif %}">
+      {{ conflicts|length }} pending
+    </span>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Ambiguous or Unmatched Referring Doctors</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Conflict ID</th>
+          <th>Kind</th>
+          <th>Candidate Name</th>
+          <th>Provider #</th>
+          <th>Possible Matches</th>
+          <th>Reason</th>
+          {% if can_resolve %}
+          <th style="text-align: right;">Action</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in conflicts %}
+        <tr>
+          <td><code>{{ c.conflict_id[:8] }}…</code></td>
+          <td>
+            {% if c.kind == "conflict" %}
+              <span class="badge badge-warning">Conflict</span>
+            {% else %}
+              <span class="badge badge-info">{{ c.kind|capitalize }}</span>
+            {% endif %}
+          </td>
+          <td><strong>{{ c.candidate_name or "—" }}</strong></td>
+          <td><code>{{ c.candidate_provider_number or "—" }}</code></td>
+          <td>
+            {% if c.possible_matches %}
+              {% for m in c.possible_matches %}
+                <span class="badge badge-neutral" style="margin-right: 4px;">{{ m }}</span>
+              {% endfor %}
+            {% else %}
+              <span style="color: var(--text-muted);">None</span>
+            {% endif %}
+          </td>
+          <td style="color: var(--text-secondary); font-size: 0.85rem;">{{ c.reason or "—" }}</td>
+          {% if can_resolve %}
+          <td style="text-align: right;">
+            <button type="button" class="btn btn-primary btn-sm" onclick="openResolveModal('{{ c.conflict_id }}', '{{ c.candidate_name }}')">
+              Resolve
+            </button>
+          </td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="{% if can_resolve %}7{% else %}6{% endif %}">
+            <div class="empty-state">
+              <div class="empty-state-title">No conflicts queued</div>
+              <div class="empty-state-text">All incoming referrals and practitioner records have been cleanly matched.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="info-banner">
+  Integration Note: Official Nookal API v2 handles patient referral linkage via referrer codes. Unmatched medical providers are queued here for manual verification before associating medical records.
+</div>
+
+<!-- Modal: Resolve Conflict -->
+<div class="modal-backdrop" id="resolve-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="resolve-modal-title">Resolve Referrer Conflict</div>
+      <button class="modal-close" onclick="closeModal('resolve-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="resolve-modal-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="resolve-form" onsubmit="submitResolve(event)">
+        <input type="hidden" id="resolve-conflict-id" name="conflict_id">
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="resolve-action">Resolution Action <span style="color: var(--error);">*</span></label>
+          <select id="resolve-action" required onchange="onResolveActionChange()">
+            <option value="select_existing">Select Existing Doctor</option>
+            <option value="create_new">Create / Add as New Doctor</option>
+            <option value="reject">Reject Unmatched Record</option>
+          </select>
+        </div>
+        <div class="form-group" id="resolve-ref-id-group" style="margin-bottom: var(--sp-4);">
+          <label for="resolve-ref-id">Referrer ID / Code</label>
+          <input id="resolve-ref-id" placeholder="e.g. ref_101 or provider number">
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="resolve-notes">Resolution Notes</label>
+          <textarea id="resolve-notes" rows="2" maxlength="200" placeholder="Optional audit notes..."></textarea>
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('resolve-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-resolve">Confirm Resolution</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openResolveModal(conflictId, candidateName) {
+  document.getElementById('resolve-conflict-id').value = conflictId;
+  document.getElementById('resolve-modal-title').textContent = 'Resolve Doctor: ' + (candidateName || conflictId);
+  document.getElementById('resolve-modal-error').style.display = 'none';
+  document.getElementById('resolve-action').value = 'select_existing';
+  document.getElementById('resolve-ref-id').value = '';
+  document.getElementById('resolve-notes').value = '';
+  onResolveActionChange();
+  openModal('resolve-modal');
+}
+
+function onResolveActionChange() {
+  const action = document.getElementById('resolve-action').value;
+  document.getElementById('resolve-ref-id-group').style.display = (action === 'reject') ? 'none' : 'block';
+}
+
+function submitResolve(e) {
+  e.preventDefault();
+  const conflictId = document.getElementById('resolve-conflict-id').value;
+  const action = document.getElementById('resolve-action').value;
+  const refId = document.getElementById('resolve-ref-id').value.trim() || null;
+  const notes = document.getElementById('resolve-notes').value.trim() || null;
+  const errorDiv = document.getElementById('resolve-modal-error');
+  errorDiv.style.display = 'none';
+
+  const body = {
+    action: action,
+    referrer_id: refId,
+    notes: notes
+  };
+
+  const btn = document.getElementById('btn-submit-resolve');
+  btn.disabled = true;
+  btn.textContent = 'Resolving...';
+
+  apiCall('POST', '/api/referrers/conflicts/' + encodeURIComponent(conflictId) + '/resolve', body)
+    .then(() => {
+      closeModal('resolve-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Confirm Resolution';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to resolve conflict.';
+    });
+}
+</script>
 {% endblock %}

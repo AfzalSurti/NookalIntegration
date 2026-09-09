@@ -1,14 +1,194 @@
 {% extends "base.html" %}
-{% block title %}System — Back to Ease{% endblock %}
+{% block title %}System Status — Back to Ease{% endblock %}
+{% block topbar_title %}System Health & Controls{% endblock %}
 {% block content %}
-<h1>System</h1>
-<div class="panel">
-  <p>Environment: <strong>{{ status.environment }}</strong></p>
-  <p>Kill switch: <strong>{{ "ACTIVE" if status.kill_switch_active else "inactive" }}</strong></p>
-  <p>Pending approvals: {{ status.pending_approvals }}</p>
-  <p>Live Nookal: {{ status.nookal_configured }}</p>
-  <p>Live messaging: {{ status.messaging_configured }}</p>
-  <p>LLM configured: {{ status.llm_configured }}</p>
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+    <div>
+      <h1 class="page-title">System Status & Controls</h1>
+      <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: var(--sp-1);">
+        Operational health indicators, integration connectivity, and emergency safe stop.
+      </p>
+    </div>
+    <div>
+      <span class="badge {% if status.environment == 'production' %}badge-success{% else %}badge-info{% endif %}">
+        Environment: {{ status.environment|upper }}
+      </span>
+    </div>
+  </div>
 </div>
-<p class="meta">Kill-switch changes require <code>system:kill_switch</code> via <code>POST /api/system/kill-switch</code>.</p>
+
+{% if status.kill_switch_active %}
+<div class="warn-banner" style="margin-bottom: var(--sp-6); font-size: 1rem; border-width: 2px;">
+  <strong>⚠ EMERGENCY KILL SWITCH IS ACTIVE:</strong> All outbound clinical notifications, automated messages, and modifying Nookal operations are currently locked.
+</div>
+{% endif %}
+
+<!-- Integration Health Grid -->
+<div class="card-grid" style="margin-bottom: var(--sp-6);">
+  <div class="card">
+    <div class="card-title" style="margin-bottom: var(--sp-2);">Nookal PMS Connection</div>
+    <div style="font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: var(--sp-2);">
+      {% if status.nookal_configured %}
+        <span style="color: var(--success);">●</span> Live API v2 Connected
+      {% else %}
+        <span style="color: var(--warning);">●</span> Mock / Offline Adapter
+      {% endif %}
+    </div>
+    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: var(--sp-2);">
+      Official base URL: https://api.nookal.com/production/v2/
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom: var(--sp-2);">Messaging Gateway</div>
+    <div style="font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: var(--sp-2);">
+      {% if status.messaging_configured %}
+        <span style="color: var(--success);">●</span> Configured
+      {% else %}
+        <span style="color: var(--text-muted);">●</span> Safe Test Sink
+      {% endif %}
+    </div>
+    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: var(--sp-2);">
+      Patient SMS & confirmation notifications
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom: var(--sp-2);">LLM Service</div>
+    <div style="font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: var(--sp-2);">
+      {% if status.llm_configured %}
+        <span style="color: var(--success);">●</span> Active (Native /api/chat)
+      {% else %}
+        <span style="color: var(--text-muted);">●</span> Disabled
+      {% endif %}
+    </div>
+    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: var(--sp-2);">
+      Qwen3.5:9b via Ollama native endpoint
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom: var(--sp-2);">Pending Approvals</div>
+    <div style="font-size: 1.4rem; font-weight: 700; color: {% if status.pending_approvals > 0 %}var(--warning){% else %}var(--success){% endif %};">
+      {{ status.pending_approvals }}
+    </div>
+    <div style="margin-top: var(--sp-2);">
+      <a href="/approvals" style="font-size: 0.85rem; font-weight: 500;">Review Queue →</a>
+    </div>
+  </div>
+</div>
+
+<!-- Kill Switch Control Card -->
+<div class="card" style="border: 1px solid {% if status.kill_switch_active %}var(--error-border){% else %}var(--border){% endif %};">
+  <div class="card-header">
+    <div class="card-title">Emergency Safe Stop (Kill Switch)</div>
+    {% if status.kill_switch_active %}
+      <span class="badge badge-error">SAFE STOP ACTIVE</span>
+    {% else %}
+      <span class="badge badge-success">NORMAL OPERATION</span>
+    {% endif %}
+  </div>
+  <p style="color: var(--text-secondary); margin-bottom: var(--sp-4);">
+    The kill switch is a clinic-level circuit breaker that immediately blocks all mutating operations, outbound messages, and appointments commands across the integration.
+  </p>
+
+  {% if can_toggle_kill_switch %}
+    <div style="padding: var(--sp-4); background: var(--bg); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-4);">
+      <div>
+        <div style="font-weight: 600;">Current State: {{ "ACTIVE (All automated actions halted)" if status.kill_switch_active else "INACTIVE (Systems operating normally)" }}</div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
+          Changing this requires administrative credentials and writes a high-priority audit entry.
+        </div>
+      </div>
+      <div>
+        {% if status.kill_switch_active %}
+          <button type="button" class="btn btn-primary" onclick="openKillSwitchModal(false)">
+            Deactivate Safe Stop (Resume Normal Operations)
+          </button>
+        {% else %}
+          <button type="button" class="btn btn-outline" style="color: var(--error); border-color: var(--error-border);" onclick="openKillSwitchModal(true)">
+            Activate Safe Stop (Emergency Halt)
+          </button>
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <div class="info-banner">
+      Administrative Control: Kill switch toggling requires the <code>system:kill_switch</code> permission (Clinic Administrator or Owner role).
+    </div>
+  {% endif %}
+</div>
+
+<!-- Modal: Kill Switch Toggle -->
+<div class="modal-backdrop" id="kill-switch-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="ks-modal-title">Emergency Control</div>
+      <button class="modal-close" onclick="closeModal('kill-switch-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="ks-modal-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="kill-switch-form" onsubmit="submitKillSwitch(event)">
+        <input type="hidden" id="ks-active" name="active">
+        <p style="margin-bottom: var(--sp-4); font-size: 0.95rem; line-height: 1.5;" id="ks-prompt-text"></p>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="ks-reason">Reason for change <span style="color: var(--error);">*</span></label>
+          <input id="ks-reason" required placeholder="e.g. Scheduled clinic maintenance, unexpected API behavior">
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('kill-switch-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="ks-submit-btn">Confirm Change</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openKillSwitchModal(activate) {
+  document.getElementById('ks-active').value = activate ? 'true' : 'false';
+  document.getElementById('ks-reason').value = '';
+  document.getElementById('ks-modal-error').style.display = 'none';
+  document.getElementById('ks-modal-title').textContent = activate ? 'Activate Emergency Safe Stop' : 'Deactivate Safe Stop';
+  document.getElementById('ks-prompt-text').innerHTML = activate
+    ? '<strong>WARNING:</strong> This will immediately pause all mutating operations, outbound SMS/email messages, and external API requests.'
+    : '<strong>Notice:</strong> This will resume all standard outbound notifications, appointment actions, and synchronization routines.';
+  const btn = document.getElementById('ks-submit-btn');
+  btn.textContent = activate ? 'Activate Safe Stop' : 'Resume Operations';
+  btn.className = activate ? 'btn btn-primary' : 'btn btn-primary';
+  if (activate) {
+    btn.style.backgroundColor = 'var(--error)';
+  } else {
+    btn.style.backgroundColor = 'var(--brand)';
+  }
+  openModal('kill-switch-modal');
+}
+
+function submitKillSwitch(e) {
+  e.preventDefault();
+  const active = document.getElementById('ks-active').value === 'true';
+  const reason = document.getElementById('ks-reason').value.trim();
+  const errorDiv = document.getElementById('ks-modal-error');
+  errorDiv.style.display = 'none';
+
+  const btn = document.getElementById('ks-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Updating...';
+
+  apiCall('POST', '/api/system/kill-switch', { active: active, reason: reason })
+    .then(() => {
+      closeModal('kill-switch-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Confirm Change';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to update kill switch.';
+    });
+}
+</script>
 {% endblock %}

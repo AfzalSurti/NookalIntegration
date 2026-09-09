@@ -1,9 +1,151 @@
 {% extends "base.html" %}
-{% block title %}Expense review - Back to Ease{% endblock %}
+{% block title %}Expense Review — Back to Ease{% endblock %}
+{% block topbar_title %}Clinic Expense Review{% endblock %}
 {% block content %}
-<h1>Expense review</h1>
-<p>Expenses requiring human confirmation.</p>
-<table><tr><th>Source document</th><th>Confidence</th><th>Status</th></tr>
-{% for expense in expenses %}<tr><td>{{ expense.document_id }}</td><td>{{ expense.extraction_confidence }}</td><td>{{ expense.status }}</td></tr>{% else %}<tr><td colspan="3">No expenses pending review.</td></tr>{% endfor %}
-</table>
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+    <h1 class="page-title">Clinic Expense & Receipt Review</h1>
+    <span class="badge {% if expenses|length > 0 %}badge-warning{% else %}badge-success{% endif %}">
+      {{ expenses|length }} pending review
+    </span>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Extracted Receipts & Invoices Requiring Human Confirmation</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Source Document</th>
+          <th>Extraction Confidence</th>
+          <th>Status</th>
+          {% if can_confirm %}
+          <th style="text-align: right;">Action</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for expense in expenses %}
+        <tr>
+          <td><code>{{ expense.document_id }}</code></td>
+          <td>
+            {% if expense.extraction_confidence is defined and expense.extraction_confidence is not none %}
+              {% if expense.extraction_confidence >= 0.85 %}
+                <span class="badge badge-success">{{ "%.0f"|format(expense.extraction_confidence * 100) }}% high</span>
+              {% elif expense.extraction_confidence >= 0.6 %}
+                <span class="badge badge-warning">{{ "%.0f"|format(expense.extraction_confidence * 100) }}% medium</span>
+              {% else %}
+                <span class="badge badge-error">{{ "%.0f"|format(expense.extraction_confidence * 100) }}% low</span>
+              {% endif %}
+            {% else %}
+              <span class="badge badge-neutral">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if expense.status == "confirmed" %}
+              <span class="badge badge-success">Confirmed</span>
+            {% elif expense.status == "pending" %}
+              <span class="badge badge-warning">Pending Review</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ expense.status }}</span>
+            {% endif %}
+          </td>
+          {% if can_confirm %}
+          <td style="text-align: right;">
+            {% if expense.status != "confirmed" %}
+            <button type="button" class="btn btn-primary btn-sm" onclick="openConfirmExpenseModal('{{ expense.document_id }}')">
+              Confirm Expense
+            </button>
+            {% else %}
+            <span style="color: var(--text-muted); font-size: 0.85rem;">Filed</span>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="{% if can_confirm %}4{% else %}3{% endif %}">
+            <div class="empty-state">
+              <div class="empty-state-title">No expenses pending review.</div>
+              <div class="empty-state-text">All clinic receipts and vendor invoices have been processed and confirmed.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="info-banner">
+  Finance Protection: Extracted line items and financial totals are held in review until verified by authorized administrative staff before ledger entry.
+</div>
+
+<!-- Modal: Confirm Expense -->
+<div class="modal-backdrop" id="confirm-expense-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="confirm-expense-title">Confirm Clinic Expense</div>
+      <button class="modal-close" onclick="closeModal('confirm-expense-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="confirm-expense-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="confirm-expense-form" onsubmit="submitConfirmExpense(event)">
+        <input type="hidden" id="confirm-doc-id" name="document_id">
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="expense-category">Accounting Category <span style="color: var(--error);">*</span></label>
+          <select id="expense-category" required>
+            <option value="medical_supplies">Clinical & Medical Supplies</option>
+            <option value="office_supplies">Office & Administration</option>
+            <option value="equipment_maintenance">Physiotherapy Equipment Maintenance</option>
+            <option value="utilities">Utilities & Facility</option>
+            <option value="continuing_education">Professional Development</option>
+            <option value="general_expense">General Expense</option>
+          </select>
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('confirm-expense-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-expense">Confirm & File Expense</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openConfirmExpenseModal(docId) {
+  document.getElementById('confirm-doc-id').value = docId;
+  document.getElementById('confirm-expense-error').style.display = 'none';
+  openModal('confirm-expense-modal');
+}
+
+function submitConfirmExpense(e) {
+  e.preventDefault();
+  const docId = document.getElementById('confirm-doc-id').value;
+  const category = document.getElementById('expense-category').value;
+  const errorDiv = document.getElementById('confirm-expense-error');
+  errorDiv.style.display = 'none';
+
+  const btn = document.getElementById('btn-submit-expense');
+  btn.disabled = true;
+  btn.textContent = 'Filing...';
+
+  apiCall('POST', '/api/finance/expenses/' + encodeURIComponent(docId) + '/confirm', { category: category, fields: {} })
+    .then(() => {
+      closeModal('confirm-expense-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Confirm & File Expense';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to confirm expense.';
+    });
+}
+</script>
 {% endblock %}

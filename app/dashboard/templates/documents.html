@@ -1,22 +1,180 @@
 {% extends "base.html" %}
 {% block title %}Documents — Back to Ease{% endblock %}
+{% block topbar_title %}Clinical Documents{% endblock %}
 {% block content %}
-<h1>Document Review</h1>
-<table>
-  <thead><tr><th>ID</th><th>Type</th><th>Patient</th><th>Template</th><th>Letter/Cert</th><th>Status</th></tr></thead>
-  <tbody>
-  {% for t in tasks %}
-    <tr>
-      <td>{{ t.id[:8] }}…</td>
-      <td>{{ t.type }}</td>
-      <td>{{ t.patient_id }}</td>
-      <td>{{ t.safe_draft.template_id or "—" }}</td>
-      <td>{{ t.safe_draft.letter_type or t.safe_draft.certificate_type or "—" }}</td>
-      <td>{{ t.status }}</td>
-    </tr>
-  {% else %}
-    <tr><td colspan="6">No document tasks pending</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+    <h1 class="page-title">Document Review Queue</h1>
+    <span class="badge {% if tasks|length > 0 %}badge-warning{% else %}badge-success{% endif %}">
+      {{ tasks|length }} pending review
+    </span>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Clinical Letters & Medical Certificates</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Task ID</th>
+          <th>Type</th>
+          <th>Patient</th>
+          <th>Template</th>
+          <th>Subtype</th>
+          <th>Review State</th>
+          {% if can_approve or can_reject %}
+          <th style="text-align: right;">Review Action</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for t in tasks %}
+        <tr>
+          <td><code>{{ t.id[:8] }}…</code></td>
+          <td><span class="badge badge-neutral">{{ t.type }}</span></td>
+          <td>
+            <a href="/patients/{{ t.patient_id }}"><strong>{{ t.patient_id }}</strong></a>
+          </td>
+          <td>{{ t.safe_draft.template_id or "Standard" }}</td>
+          <td>
+            {% if t.safe_draft.letter_type %}
+              <span class="badge badge-info">{{ t.safe_draft.letter_type }}</span>
+            {% elif t.safe_draft.certificate_type %}
+              <span class="badge badge-info">{{ t.safe_draft.certificate_type }}</span>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            {% if t.status == "pending" %}
+              <span class="badge badge-warning">LLM Draft · Pending Review</span>
+            {% elif t.status == "approved" %}
+              <span class="badge badge-success">Approved</span>
+            {% elif t.status == "rejected" %}
+              <span class="badge badge-error">Rejected</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ t.status }}</span>
+            {% endif %}
+          </td>
+          {% if can_approve or can_reject %}
+          <td style="text-align: right;">
+            {% if t.status == "pending" %}
+            <div class="flex gap-2" style="justify-content: flex-end;">
+              {% if can_approve %}
+              <button type="button" class="btn btn-primary btn-sm" onclick="openDocApprovalModal('approve', '{{ t.id }}', '{{ t.patient_id }}')">Approve</button>
+              {% endif %}
+              {% if can_reject %}
+              <button type="button" class="btn btn-outline btn-sm" style="color: var(--error); border-color: var(--error-border);" onclick="openDocApprovalModal('reject', '{{ t.id }}', '{{ t.patient_id }}')">Reject</button>
+              {% endif %}
+            </div>
+            {% else %}
+            <span style="color: var(--text-muted); font-size: 0.85rem;">Completed</span>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="{% if can_approve or can_reject %}7{% else %}6{% endif %}">
+            <div class="empty-state">
+              <div class="empty-state-title">No document tasks pending</div>
+              <div class="empty-state-text">No letters or medical certificates currently await human review.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="info-banner">
+  Integration Notice: Generated letters and certificates undergo human clinical review prior to filing. Automatic document upload to Nookal will be activated as official Nookal v2 document endpoints become available.
+</div>
+
+<!-- Document Approval Modal -->
+<div class="modal-backdrop" id="doc-approval-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="doc-modal-title">Review Clinical Document</div>
+      <button class="modal-close" onclick="closeModal('doc-approval-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="doc-modal-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="doc-approval-form" onsubmit="submitDocApproval(event)">
+        <input type="hidden" id="doc-approval-action" name="action">
+        <input type="hidden" id="doc-approval-task-id" name="task_id">
+        <p style="margin-bottom: var(--sp-4); font-size: 0.9rem;" id="doc-prompt-text">
+          Confirm document review decision:
+        </p>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="doc-approval-notes">Reviewer Notes (Optional)</label>
+          <textarea id="doc-approval-notes" name="notes" rows="3" placeholder="Add clinical review comments..."></textarea>
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('doc-approval-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="doc-submit-btn">Confirm</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openDocApprovalModal(action, taskId, patientId) {
+  document.getElementById('doc-approval-action').value = action;
+  document.getElementById('doc-approval-task-id').value = taskId;
+  document.getElementById('doc-approval-notes').value = '';
+  document.getElementById('doc-modal-error').style.display = 'none';
+  const isApprove = (action === 'approve');
+  document.getElementById('doc-modal-title').textContent = isApprove ? 'Approve Clinical Document' : 'Reject Clinical Document';
+  document.getElementById('doc-prompt-text').textContent = isApprove
+    ? 'Approve this document for patient ' + patientId + '? This certifies clinical accuracy and marks the draft approved.'
+    : 'Reject this draft? You can specify reason notes below.';
+  const btn = document.getElementById('doc-submit-btn');
+  btn.textContent = isApprove ? 'Approve Document' : 'Reject Draft';
+  btn.className = isApprove ? 'btn btn-primary' : 'btn btn-outline';
+  if (!isApprove) {
+    btn.style.color = 'var(--error)';
+    btn.style.borderColor = 'var(--error-border)';
+  } else {
+    btn.style.color = '';
+    btn.style.borderColor = '';
+  }
+  openModal('doc-approval-modal');
+}
+
+function submitDocApproval(e) {
+  e.preventDefault();
+  const action = document.getElementById('doc-approval-action').value;
+  const taskId = document.getElementById('doc-approval-task-id').value;
+  const notes = document.getElementById('doc-approval-notes').value.trim() || null;
+  const errorDiv = document.getElementById('doc-modal-error');
+  errorDiv.style.display = 'none';
+
+  const btn = document.getElementById('doc-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Processing...';
+
+  const endpoint = '/api/approvals/' + encodeURIComponent(taskId) + '/' + action;
+  const body = notes ? { notes: notes } : {};
+
+  apiCall('POST', endpoint, body)
+    .then(() => {
+      closeModal('doc-approval-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Try Again';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Action failed.';
+    });
+}
+</script>
 {% endblock %}

@@ -1,21 +1,199 @@
 {% extends "base.html" %}
 {% block title %}Appointments — Back to Ease{% endblock %}
+{% block topbar_title %}Appointments{% endblock %}
 {% block content %}
-<h1>Appointments</h1>
-<table>
-  <thead><tr><th>ID</th><th>Patient</th><th>Starts</th><th>Status</th><th>Practitioner</th></tr></thead>
-  <tbody>
-  {% for a in appointments %}
-    <tr>
-      <td>{{ a.appointment_id }}</td>
-      <td><a href="/patients/{{ a.patient_id }}">{{ a.patient_id }}</a></td>
-      <td>{{ a.starts_at }}</td>
-      <td>{{ a.status or "—" }}</td>
-      <td>{{ a.practitioner_id or "—" }}</td>
-    </tr>
-  {% else %}
-    <tr><td colspan="5">No upcoming appointments</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+    <h1 class="page-title">Appointment Schedule</h1>
+    <span class="badge badge-info">{{ appointments|length }} scheduled</span>
+    {% if has_active_filters %}
+      <span class="badge badge-warning">Filtered</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Filter Appointments</div>
+    {% if has_active_filters %}
+      <a href="/appointments" class="btn btn-secondary btn-sm">Clear Filters</a>
+    {% endif %}
+  </div>
+  <form method="get" action="/appointments" id="appointment-filter-form">
+    <div class="form-row" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+      <div class="form-group">
+        <label for="date_from">Date From</label>
+        <input id="date_from" name="date_from" type="date" value="{{ filters.date_from }}">
+      </div>
+      <div class="form-group">
+        <label for="date_to">Date To</label>
+        <input id="date_to" name="date_to" type="date" value="{{ filters.date_to }}">
+      </div>
+      <div class="form-group">
+        <label for="patient_id">Patient ID</label>
+        <input id="patient_id" name="patient_id" value="{{ filters.patient_id }}" placeholder="e.g. pat_1001">
+      </div>
+    </div>
+    <div class="form-actions" style="margin-top: var(--sp-4);">
+      <button type="submit" class="btn btn-primary">Apply Filters</button>
+      <a href="/appointments" class="btn btn-secondary">Clear / Reset</a>
+      {% if has_active_filters %}
+        <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: auto; align-self: center;">
+          Showing filtered appointments
+        </span>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<div class="table-wrapper">
+  <table>
+    <thead>
+      <tr>
+        <th>Appointment ID</th>
+        <th>Patient</th>
+        <th>Date & Time</th>
+        <th>Status</th>
+        <th>Practitioner</th>
+        {% if can_change %}
+        <th style="text-align: right;">Actions</th>
+        {% endif %}
+      </tr>
+    </thead>
+    <tbody>
+    {% for a in appointments %}
+      <tr>
+        <td><code>{{ a.appointment_id }}</code></td>
+        <td>
+          <a href="/patients/{{ a.patient_id }}"><strong>{{ a.patient_id }}</strong></a>
+        </td>
+        <td>{{ a.starts_at }}</td>
+        <td>
+          {% if a.status == "booked" %}
+            <span class="badge badge-info">Booked</span>
+          {% elif a.status == "completed" or a.status == "arrived" %}
+            <span class="badge badge-success">{{ a.status|capitalize }}</span>
+          {% elif a.status == "cancelled" %}
+            <span class="badge badge-error">Cancelled</span>
+          {% elif a.status %}
+            <span class="badge badge-neutral">{{ a.status|capitalize }}</span>
+          {% else %}
+            <span class="badge badge-neutral">—</span>
+          {% endif %}
+        </td>
+        <td>{{ a.practitioner_id or "—" }}</td>
+        {% if can_change %}
+        <td style="text-align: right;">
+          {% if a.status != "cancelled" %}
+          <div class="flex gap-2" style="justify-content: flex-end;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="openApptAction('reschedule', '{{ a.appointment_id }}', '{{ a.patient_id }}')">Reschedule</button>
+            <button type="button" class="btn btn-outline btn-sm" style="color: var(--error); border-color: var(--error-border);" onclick="openApptAction('cancel', '{{ a.appointment_id }}', '{{ a.patient_id }}')">Cancel</button>
+          </div>
+          {% else %}
+          <span style="color: var(--text-muted); font-size: 0.85rem;">Cancelled</span>
+          {% endif %}
+        </td>
+        {% endif %}
+      </tr>
+    {% else %}
+      <tr>
+        <td colspan="{% if can_change %}6{% else %}5{% endif %}">
+          <div class="empty-state">
+            <div class="empty-state-title">No upcoming appointments</div>
+            <div class="empty-state-text">No appointments found matching your criteria.</div>
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Appointment Action Modal -->
+<div class="modal-backdrop" id="appt-action-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="appt-modal-title">Appointment Action</div>
+      <button class="modal-close" onclick="closeModal('appt-action-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="appt-modal-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="appt-modal-form" onsubmit="submitApptAction(event)">
+        <input type="hidden" id="appt-action-type" name="action">
+        <input type="hidden" id="appt-id" name="appointment_id">
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="appt-phone">Patient Contact Phone <span style="color: var(--error);">*</span></label>
+          <input id="appt-phone" name="phone" required placeholder="e.g. 0412345678">
+        </div>
+        <div class="form-group" id="reschedule-date-group" style="margin-bottom: var(--sp-4); display: none;">
+          <label for="appt-starts-at">New Start Date & Time</label>
+          <input id="appt-starts-at" name="starts_at" type="datetime-local">
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="appt-message">Reason / Confirmation Notes</label>
+          <textarea id="appt-message" name="message" rows="3" placeholder="Optional notes for clinic log..."></textarea>
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('appt-action-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="appt-submit-btn">Confirm</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openApptAction(action, apptId, patientId) {
+  document.getElementById('appt-action-type').value = action;
+  document.getElementById('appt-id').value = apptId;
+  document.getElementById('appt-modal-error').style.display = 'none';
+  document.getElementById('appt-phone').value = '';
+  document.getElementById('appt-message').value = '';
+  const isReschedule = (action === 'reschedule');
+  document.getElementById('reschedule-date-group').style.display = isReschedule ? 'block' : 'none';
+  document.getElementById('appt-modal-title').textContent = isReschedule ? 'Reschedule Appointment' : 'Cancel Appointment';
+  document.getElementById('appt-submit-btn').textContent = isReschedule ? 'Reschedule' : 'Cancel Appointment';
+  if (!isReschedule) {
+    document.getElementById('appt-submit-btn').className = 'btn btn-primary';
+  } else {
+    document.getElementById('appt-submit-btn').className = 'btn btn-primary';
+  }
+  openModal('appt-action-modal');
+}
+
+function submitApptAction(e) {
+  e.preventDefault();
+  const action = document.getElementById('appt-action-type').value;
+  const phone = document.getElementById('appt-phone').value.trim();
+  const message = document.getElementById('appt-message').value.trim() || null;
+  const startsAt = document.getElementById('appt-starts-at').value ? new Date(document.getElementById('appt-starts-at').value).toISOString() : null;
+  const errorDiv = document.getElementById('appt-modal-error');
+  errorDiv.style.display = 'none';
+
+  const body = {
+    action: action,
+    phone: phone,
+    message: message,
+    starts_at: startsAt
+  };
+
+  const btn = document.getElementById('appt-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Processing...';
+
+  apiCall('POST', '/api/appointments/actions', body)
+    .then(data => {
+      closeModal('appt-action-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Try Again';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Action failed. Please verify the phone and parameters.';
+    });
+}
+</script>
 {% endblock %}

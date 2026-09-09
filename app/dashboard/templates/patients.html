@@ -1,31 +1,119 @@
 {% extends "base.html" %}
 {% block title %}Patients — Back to Ease{% endblock %}
+{% block topbar_title %}Patients{% endblock %}
 {% block content %}
-<h1>Patients</h1>
-<form method="get" class="row panel">
-  <div>
-    <label for="suburb">Suburb</label>
-    <input id="suburb" name="suburb" value="{{ suburb }}">
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+    <h1 class="page-title">Patient Directory</h1>
+    <span class="badge badge-info" id="patient-count-badge">{{ results.total }} found</span>
+    {% if has_active_filters %}
+      <span class="badge badge-warning" id="filter-active-badge">Active Filters</span>
+    {% endif %}
   </div>
-  <button type="submit">Search</button>
-</form>
-<table>
-  <thead>
-    <tr><th>ID</th><th>Name</th><th>Suburb</th><th>Age</th><th>Referrer</th><th></th></tr>
-  </thead>
-  <tbody>
-  {% for p in results.items %}
-    <tr>
-      <td>{{ p.patient_id }}</td>
-      <td>{{ p.display_name or "—" }}</td>
-      <td>{{ p.suburb or "—" }}</td>
-      <td>{{ p.age if p.age is not none else "—" }}</td>
-      <td>{{ p.referrer_id or "—" }}</td>
-      <td><a href="/patients/{{ p.patient_id }}">View</a></td>
-    </tr>
-  {% else %}
-    <tr><td colspan="6">No matches</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Search & Filter Patients</div>
+    {% if has_active_filters %}
+      <a href="/patients" class="btn btn-secondary btn-sm" id="btn-reset-filters">Clear Filters</a>
+    {% endif %}
+  </div>
+  <form method="get" action="/patients" id="patient-filter-form">
+    <div class="form-row" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+      <div class="form-group">
+        <label for="suburb">Suburb</label>
+        <input id="suburb" name="suburb" value="{{ filters.suburb }}" placeholder="e.g. Richmond">
+      </div>
+
+      <div class="form-group">
+        <label for="age_min">Min Age</label>
+        <input id="age_min" name="age_min" type="number" min="0" max="130" value="{{ filters.age_min }}" placeholder="Min age">
+      </div>
+
+      <div class="form-group">
+        <label for="age_max">Max Age</label>
+        <input id="age_max" name="age_max" type="number" min="0" max="130" value="{{ filters.age_max }}" placeholder="Max age">
+      </div>
+
+      <div class="form-group">
+        <label for="appointment_from">Last Appt From</label>
+        <input id="appointment_from" name="appointment_from" type="date" value="{{ filters.appointment_from }}">
+      </div>
+
+      <div class="form-group">
+        <label for="appointment_to">Last Appt To</label>
+        <input id="appointment_to" name="appointment_to" type="date" value="{{ filters.appointment_to }}">
+      </div>
+
+      <div class="form-group">
+        <label for="referrer_id">Referring Doctor</label>
+        {% if referrers_supported and known_referrers %}
+          <select id="referrer_id" name="referrer_id">
+            <option value="">All referrers</option>
+            {% for ref in known_referrers %}
+              <option value="{{ ref.id }}" {% if filters.referrer_id == ref.id %}selected{% endif %}>{{ ref.name }}</option>
+            {% endfor %}
+          </select>
+        {% else %}
+          <input id="referrer_id" name="referrer_id" value="{{ filters.referrer_id }}" placeholder="Referrer ID / Code">
+        {% endif %}
+      </div>
+    </div>
+
+    {% if not referrers_supported %}
+    <div class="info-banner" style="margin-top: var(--sp-3); font-size: 0.8rem;">
+      Note: Nookal API v2 does not expose a public directory of referrers. Enter doctor/referrer ID directly to filter.
+    </div>
+    {% endif %}
+
+    <div class="form-actions" style="margin-top: var(--sp-4);">
+      <button type="submit" class="btn btn-primary" id="btn-apply-filters">Apply Filters</button>
+      <a href="/patients" class="btn btn-secondary" id="btn-reset-filters">Clear / Reset</a>
+      {% if has_active_filters %}
+        <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: auto; align-self: center;">
+          Showing filtered subset of patient records
+        </span>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<div class="table-wrapper">
+  <table>
+    <thead>
+      <tr>
+        <th>Patient ID</th>
+        <th>Name</th>
+        <th>Suburb</th>
+        <th>Age</th>
+        <th>Referrer</th>
+        <th style="text-align: right;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for p in results.items %}
+      <tr>
+        <td><code>{{ p.patient_id }}</code></td>
+        <td><strong>{{ p.display_name or "—" }}</strong></td>
+        <td>{{ p.suburb or "—" }}</td>
+        <td>{{ p.age if p.age is not none else "—" }}</td>
+        <td>{{ p.referrer_id or "—" }}</td>
+        <td style="text-align: right;">
+          <a href="/patients/{{ p.patient_id }}" class="btn btn-secondary btn-sm">View Details</a>
+        </td>
+      </tr>
+    {% else %}
+      <tr>
+        <td colspan="6">
+          <div class="empty-state">
+            <div class="empty-state-title">No matching patients found.</div>
+            <div class="empty-state-text">Try adjusting or clearing your filters.</div>
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

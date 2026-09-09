@@ -1,9 +1,85 @@
 {% extends "base.html" %}
-{% block title %}Case flags - Back to Ease{% endblock %}
+{% block title %}Case Flags — Back to Ease{% endblock %}
+{% block topbar_title %}Clinical Case Tracking{% endblock %}
 {% block content %}
-<h1>Case flags</h1>
-<p>Unacknowledged administrative session flags.</p>
-<table><tr><th>Case</th><th>Sessions</th><th>Raised</th><th>Acknowledged</th></tr>
-{% for case in cases %}<tr><td>{{ case.case_id }}</td><td>{{ case.session_count }}</td><td>{{ case.flag_raised_at }}</td><td>{{ case.acknowledged_by or "Pending" }}</td></tr>{% else %}<tr><td colspan="4">No unacknowledged flags.</td></tr>{% endfor %}
-</table>
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+    <h1 class="page-title">Case Flags & Session Monitoring</h1>
+    <span class="badge {% if cases|length > 0 %}badge-warning{% else %}badge-success{% endif %}">
+      {{ cases|length }} flagged
+    </span>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Treatment Plan & Utilization Alerts</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Case ID</th>
+          <th>Session Count</th>
+          <th>Flag Raised</th>
+          <th>Review Status</th>
+          {% if can_acknowledge %}
+          <th style="text-align: right;">Action</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for case in cases %}
+        <tr>
+          <td><code>{{ case.case_id }}</code></td>
+          <td><span class="badge badge-neutral">{{ case.session_count }} sessions</span></td>
+          <td>{{ case.flag_raised_at }}</td>
+          <td>
+            {% if case.acknowledged_by %}
+              <span class="badge badge-success">Acknowledged by {{ case.acknowledged_by }}</span>
+            {% else %}
+              <span class="badge badge-warning">Pending Review</span>
+            {% endif %}
+          </td>
+          {% if can_acknowledge %}
+          <td style="text-align: right;">
+            {% if not case.acknowledged_by %}
+            <button type="button" class="btn btn-primary btn-sm" onclick="acknowledgeCase('{{ case.case_id }}')">
+              Acknowledge
+            </button>
+            {% else %}
+            <span style="color: var(--text-muted); font-size: 0.85rem;">Completed</span>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="{% if can_acknowledge %}5{% else %}4{% endif %}">
+            <div class="empty-state">
+              <div class="empty-state-title">No unacknowledged flags.</div>
+              <div class="empty-state-text">All clinical treatment plans are within expected session parameters.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="info-banner">
+  Protocol Notice: Case flags are automatically raised when patients exceed care plan session thresholds. Acknowledging a flag logs clinician sign-off in the audit trail.
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function acknowledgeCase(caseId) {
+  if (!confirm('Acknowledge case flag for ' + caseId + '?')) return;
+  apiCall('POST', '/api/cases/' + encodeURIComponent(caseId) + '/acknowledge')
+    .then(() => location.reload())
+    .catch(err => alert((err && (err.detail || err.error || err.message)) || 'Failed to acknowledge case flag.'));
+}
+</script>
 {% endblock %}

@@ -1,19 +1,26 @@
 {% extends "base.html" %}
 {% block title %}Sign in — Back to Ease{% endblock %}
-{% block content %}
-<div class="panel" style="max-width:420px">
-  <h1>Sign in</h1>
-  {% if error %}<p class="error">{{ error }}</p>{% endif %}
-  <form method="post" action="/login" class="stack">
-    <div>
-      <label for="username">Username</label>
-      <input id="username" name="username" required autocomplete="username">
+{% block body %}
+<div class="login-layout">
+  <div class="login-card">
+    <div class="login-brand">
+      <h1>Back to Ease</h1>
+      <p>Physiotherapy clinic operations</p>
     </div>
-    <div>
-      <label for="password">Password</label>
-      <input id="password" name="password" type="password" required autocomplete="current-password">
-    </div>
-    <button type="submit">Sign in</button>
-  </form>
+    {% if error %}
+    <div class="alert alert-error" role="alert">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/login">
+      <div class="form-group">
+        <label for="username" class="form-label">Username</label>
+        <input id="username" name="username" class="form-input" required autocomplete="username" autofocus>
+      </div>
+      <div class="form-group">
+        <label for="password" class="form-label">Password</label>
+        <input id="password" name="password" type="password" class="form-input" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%; height:38px; font-size:0.9rem;">Sign in</button>
+    </form>
+  </div>
 </div>
 {% endblock %}

@@ -1,8 +1,302 @@
 {% extends "base.html" %}
 {% block title %}Marketing — Back to Ease{% endblock %}
+{% block topbar_title %}Patient Communications & Marketing{% endblock %}
 {% block content %}
-<h1>Marketing</h1>
-<div class="panel">
-  <p>Placeholder for a later phase. No marketing sends from this screen.</p>
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+    <div>
+      <h1 class="page-title">Marketing & Patient Communications</h1>
+      <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: var(--sp-1);">
+        Segmented campaigns with automated consent checking and suppression filtering.
+      </p>
+    </div>
+    {% if can_manage %}
+    <div class="flex gap-2">
+      <button type="button" class="btn btn-secondary" onclick="openModal('create-list-modal')">+ New Audience List</button>
+      <button type="button" class="btn btn-primary" onclick="openModal('create-campaign-modal')">+ New Campaign</button>
+    </div>
+    {% endif %}
+  </div>
 </div>
+
+<!-- Campaigns Section -->
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Campaigns ({{ campaigns|length }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Campaign</th>
+          <th>Subject</th>
+          <th>Audience List</th>
+          <th>Template</th>
+          <th>Status</th>
+          {% if can_manage %}
+          <th style="text-align: right;">Workflow Actions</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in campaigns %}
+        <tr>
+          <td>
+            <strong>{{ c.name }}</strong>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">ID: <code>{{ c.id[:8] }}…</code></div>
+          </td>
+          <td>{{ c.subject }}</td>
+          <td><code>{{ c.marketing_list_id }}</code></td>
+          <td>{{ c.template_id }}</td>
+          <td>
+            {% if c.status == "completed" %}
+              <span class="badge badge-success">Completed</span>
+            {% elif c.status == "approved" or c.status == "queued" %}
+              <span class="badge badge-info">{{ c.status|capitalize }}</span>
+            {% elif c.status == "review" or c.status == "draft" %}
+              <span class="badge badge-warning">{{ c.status|capitalize }}</span>
+            {% elif c.status == "sending" %}
+              <span class="badge badge-warning">Sending</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ c.status }}</span>
+            {% endif %}
+          </td>
+          {% if can_manage %}
+          <td style="text-align: right;">
+            <div class="flex gap-2" style="justify-content: flex-end;">
+              {% if c.status == "draft" %}
+                <button type="button" class="btn btn-secondary btn-sm" onclick="runCampaignAction('submit', '{{ c.id }}')">Submit Review</button>
+              {% elif c.status == "review" %}
+                <button type="button" class="btn btn-primary btn-sm" onclick="runCampaignAction('approve', '{{ c.id }}')">Approve</button>
+              {% elif c.status == "approved" %}
+                <button type="button" class="btn btn-secondary btn-sm" onclick="runCampaignAction('queue', '{{ c.id }}')">Queue</button>
+              {% elif c.status == "queued" %}
+                <button type="button" class="btn btn-primary btn-sm" onclick="runCampaignAction('send', '{{ c.id }}')">Send Now</button>
+              {% else %}
+                <span style="color: var(--text-muted); font-size: 0.85rem;">—</span>
+              {% endif %}
+            </div>
+          </td>
+          {% endif %}
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="{% if can_manage %}6{% else %}5{% endif %}">
+            <div class="empty-state">
+              <div class="empty-state-title">No campaigns yet</div>
+              <div class="empty-state-text">Create an audience list and launch a patient communication campaign.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Lists Section -->
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Audience Lists ({{ lists|length }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>List Name</th>
+          <th>Description</th>
+          <th>Filters Applied</th>
+          <th>Created By</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for l in lists %}
+        <tr>
+          <td>
+            <strong>{{ l.name }}</strong>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">ID: <code>{{ l.id }}</code></div>
+          </td>
+          <td>{{ l.description or "—" }}</td>
+          <td>
+            {% if l.filter_definition %}
+              {% for f in l.filter_definition %}
+                <span class="badge badge-neutral" style="margin-right: 4px;">{{ f.filter_type }}: {{ f.value }}</span>
+              {% endfor %}
+            {% else %}
+              <span style="color: var(--text-muted); font-size: 0.85rem;">All patients</span>
+            {% endif %}
+          </td>
+          <td>{{ l.created_by or "—" }}</td>
+          <td><span class="badge badge-success">{{ l.status or "active" }}</span></td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="5">
+            <div class="empty-state">
+              <div class="empty-state-title">No audience lists created</div>
+              <div class="empty-state-text">Audience lists define patient segments based on suburb, inactivity, or referral history.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="info-banner">
+  Safety & Compliance: All campaigns automatically verify patient consent records and suppression lists before dispatch. In staging and test modes, emails are routed to a verified test sink.
+</div>
+
+<!-- Modal: Create Campaign -->
+<div class="modal-backdrop" id="create-campaign-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Create New Campaign</div>
+      <button class="modal-close" onclick="closeModal('create-campaign-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="campaign-modal-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="create-campaign-form" onsubmit="submitCreateCampaign(event)">
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="camp-name">Campaign Name <span style="color: var(--error);">*</span></label>
+          <input id="camp-name" required placeholder="e.g. Spring Clinic Newsletter">
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="camp-subject">Email Subject <span style="color: var(--error);">*</span></label>
+          <input id="camp-subject" required placeholder="e.g. Tips for Back Health — Back to Ease">
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="camp-template">Template ID <span style="color: var(--error);">*</span></label>
+          <input id="camp-template" required placeholder="e.g. general_newsletter_v1">
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="camp-list-id">Target Audience List <span style="color: var(--error);">*</span></label>
+          <select id="camp-list-id" required>
+            <option value="">Select an audience list...</option>
+            {% for l in lists %}
+              <option value="{{ l.id }}">{{ l.name }} ({{ l.id }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('create-campaign-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-campaign">Create Campaign</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Create List -->
+<div class="modal-backdrop" id="create-list-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Create Audience List</div>
+      <button class="modal-close" onclick="closeModal('create-list-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="list-modal-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="create-list-form" onsubmit="submitCreateList(event)">
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="list-name">List Name <span style="color: var(--error);">*</span></label>
+          <input id="list-name" required placeholder="e.g. Richmond Patients">
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="list-desc">Description</label>
+          <textarea id="list-desc" rows="2" placeholder="Optional description of target audience criteria..."></textarea>
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="list-suburb">Filter by Suburb (Optional)</label>
+          <input id="list-suburb" placeholder="e.g. Richmond">
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('create-list-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-list">Save Audience List</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function runCampaignAction(action, campaignId) {
+  if (!confirm('Are you sure you want to ' + action + ' this campaign?')) return;
+  apiCall('POST', '/api/marketing/campaigns/' + encodeURIComponent(campaignId) + '/' + action)
+    .then(() => location.reload())
+    .catch(err => alert((err && (err.detail || err.error || err.message)) || 'Campaign action failed'));
+}
+
+function submitCreateCampaign(e) {
+  e.preventDefault();
+  const name = document.getElementById('camp-name').value.trim();
+  const subject = document.getElementById('camp-subject').value.trim();
+  const templateId = document.getElementById('camp-template').value.trim();
+  const listId = document.getElementById('camp-list-id').value;
+  const errorDiv = document.getElementById('campaign-modal-error');
+  errorDiv.style.display = 'none';
+
+  const body = {
+    name: name,
+    subject: subject,
+    template_id: templateId,
+    marketing_list_id: listId
+  };
+
+  const btn = document.getElementById('btn-save-campaign');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+
+  apiCall('POST', '/api/marketing/campaigns', body)
+    .then(() => {
+      closeModal('create-campaign-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Create Campaign';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to create campaign.';
+    });
+}
+
+function submitCreateList(e) {
+  e.preventDefault();
+  const name = document.getElementById('list-name').value.trim();
+  const desc = document.getElementById('list-desc').value.trim();
+  const suburb = document.getElementById('list-suburb').value.trim();
+  const errorDiv = document.getElementById('list-modal-error');
+  errorDiv.style.display = 'none';
+
+  const filterDefinition = [];
+  if (suburb) {
+    filterDefinition.push({ filter_type: 'suburb', value: suburb });
+  }
+
+  const body = {
+    name: name,
+    description: desc,
+    filter_definition: filterDefinition
+  };
+
+  const btn = document.getElementById('btn-save-list');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  apiCall('POST', '/api/marketing/lists', body)
+    .then(() => {
+      closeModal('create-list-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Save Audience List';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to create list.';
+    });
+}
+</script>
 {% endblock %}

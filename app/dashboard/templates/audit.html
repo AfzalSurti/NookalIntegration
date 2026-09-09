@@ -1,9 +1,117 @@
 {% extends "base.html" %}
-{% block title %}Audit — Back to Ease{% endblock %}
+{% block title %}Audit Log — Back to Ease{% endblock %}
+{% block topbar_title %}Audit Log{% endblock %}
 {% block content %}
-<h1>Audit</h1>
-<div class="panel">
-  <p>Use <code>GET /api/audit</code> with filters (actor, action, result, date, correlation ID).</p>
-  <p>Viewer returns scrubbed events only — no patient names, message bodies, or secrets.</p>
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+    <h1 class="page-title">System Audit Log</h1>
+    <span class="badge badge-info">{{ event_count }} events</span>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Filter Audit Records</div>
+    {% if filters.actor or filters.action or filters.result or filters.date_from or filters.date_to %}
+      <a href="/audit" class="btn btn-secondary btn-sm">Clear Filters</a>
+    {% endif %}
+  </div>
+  <form method="get" action="/audit" id="audit-filter-form">
+    <div class="form-row" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+      <div class="form-group">
+        <label for="actor">Actor</label>
+        <input id="actor" name="actor" value="{{ filters.actor }}" placeholder="e.g. staff_1, admin_1">
+      </div>
+      <div class="form-group">
+        <label for="action">Action</label>
+        <input id="action" name="action" value="{{ filters.action }}" placeholder="e.g. dashboard.login">
+      </div>
+      <div class="form-group">
+        <label for="result">Result</label>
+        <select id="result" name="result">
+          <option value="">All results</option>
+          <option value="success" {% if filters.result == "success" %}selected{% endif %}>Success</option>
+          <option value="failure" {% if filters.result == "failure" %}selected{% endif %}>Failure</option>
+          <option value="blocked" {% if filters.result == "blocked" %}selected{% endif %}>Blocked</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="date_from">Date From</label>
+        <input id="date_from" name="date_from" type="date" value="{{ filters.date_from }}">
+      </div>
+      <div class="form-group">
+        <label for="date_to">Date To</label>
+        <input id="date_to" name="date_to" type="date" value="{{ filters.date_to }}">
+      </div>
+    </div>
+    <div class="form-actions" style="margin-top: var(--sp-4);">
+      <button type="submit" class="btn btn-primary">Apply Filters</button>
+      <a href="/audit" class="btn btn-secondary">Reset</a>
+    </div>
+  </form>
+</div>
+
+<div class="table-wrapper">
+  <table>
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>Actor</th>
+        <th>Action</th>
+        <th>Target</th>
+        <th>Result</th>
+        <th>Metadata</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for ev in events %}
+      <tr>
+        <td style="white-space: nowrap; font-size: 0.85rem;"><code>{{ ev.timestamp }}</code></td>
+        <td><strong>{{ ev.actor }}</strong></td>
+        <td><code>{{ ev.action }}</code></td>
+        <td>
+          {% if ev.target_type %}
+            <span style="color: var(--text-secondary);">{{ ev.target_type }}</span>: <code>{{ ev.target_id }}</code>
+          {% else %}
+            —
+          {% endif %}
+        </td>
+        <td>
+          {% if ev.result == "success" %}
+            <span class="badge badge-success">Success</span>
+          {% elif ev.result == "failure" %}
+            <span class="badge badge-error">Failure</span>
+          {% elif ev.result == "blocked" %}
+            <span class="badge badge-warning">Blocked</span>
+          {% else %}
+            <span class="badge badge-neutral">{{ ev.result }}</span>
+          {% endif %}
+        </td>
+        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; color: var(--text-secondary);">
+          {% if ev.metadata %}
+            {% for k, v in ev.metadata.items() %}
+              <span style="margin-right: var(--sp-2);"><strong>{{ k }}:</strong> {{ v }}</span>
+            {% endfor %}
+          {% else %}
+            —
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr>
+        <td colspan="6">
+          <div class="empty-state">
+            <div class="empty-state-title">No audit events found</div>
+            <div class="empty-state-text">No security or operational log events match the specified filter criteria.</div>
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="info-banner" style="margin-top: var(--sp-6);">
+  Compliance & Privacy Assurance: Audit entries are scrubbed at ingestion. Clinical notes, message bodies, patient identifiers, and authentication credentials are systematically withheld from operational logs.
 </div>
 {% endblock %}
