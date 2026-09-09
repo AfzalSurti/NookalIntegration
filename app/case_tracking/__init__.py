@@ -54,6 +54,10 @@ class CaseTracking:
         """Read appointments and update the counter without any external write."""
         resolved_patient_id = patient_id or case_id
         appointments = self._nookal.list_appointments(patient_id=resolved_patient_id)
+        self._audit(
+            "case_tracking", "refresh_case", "patient_record", case_id, "success",
+            metadata={"appointment_count": len(appointments)},
+        )
         with self._lock:
             current = self._cases.get(case_id) or CaseSessionCounter(case_id, resolved_patient_id)
             counted = set(current.counted_session_ids)

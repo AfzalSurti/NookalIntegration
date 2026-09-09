@@ -71,10 +71,13 @@ class DocumentFiler:
     ) -> DocumentRecord:
         """File unchanged bytes to selected targets; unresolved matches are rejected."""
         if document.patient_match.status != "matched" or not document.patient_match.patient_id:
+            self._audit("doc_filing", "file_document", "document", document.document_id, "failure", metadata={"reason": "unresolved_patient"})
             raise ValueError("document must have a human-confirmed patient match")
         if not to_nookal and not to_drive:
+            self._audit("doc_filing", "file_document", "document", document.document_id, "failure", metadata={"reason": "no_target"})
             raise ValueError("at least one filing target is required")
         if to_drive and self._drive is None:
+            self._audit("doc_filing", "file_document", "document", document.document_id, "failure", metadata={"reason": "drive_unavailable"})
             raise ValueError("drive adapter is required when to_drive=True")
 
         content = Path(document.preserved_path).read_bytes()
@@ -116,9 +119,21 @@ class DocumentFiler:
                 if isinstance(exc, KillSwitchActive) else "failure",
                 metadata={"completed_target_count": len(completed)},
             )
+            if isinstance(exc, KillSwitchActive):
+                raise
             raise DocumentFilingError("document filing failed", failed) from exc
 
         return replace(current, filed_to=tuple(completed), filing_status="filed")
+
+    def cleanup_preserved(self, document: DocumentRecord, *, actor: str) -> None:
+        """Remove a caller-designated temporary preserved copy after filing or failure handling."""
+        path = Path(document.preserved_path)
+        if path.exists():
+            path.unlink()
+        self._audit(
+            actor, "cleanup_preserved_document", "document", document.document_id, "success",
+            metadata={},
+        )
 
     def _check_kill_switch(self, operation: str) -> None:
         assert_allows(operation)

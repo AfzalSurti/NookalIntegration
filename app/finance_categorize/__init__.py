@@ -10,6 +10,7 @@ from app.doc_filing import DriveAdapter
 from app.finance_extract import ExpenseRecord
 from app.shared import audit as audit_mod
 from app.shared.config import get_settings
+from app.shared.kill_switch import assert_allows
 
 
 AuditFn = Callable[..., Any]
@@ -47,13 +48,16 @@ class FinanceCategorizer:
         categorized_by: str,
     ) -> CategorizedExpense:
         if expense.status != "extracted":
+            self._audit("finance_categorize", "categorize_expense", "document", expense.document_id, "failure", metadata={"reason": "not_confirmed"})
             raise ValueError("expense must be confirmed before categorization")
         chosen = (category or expense.category or "").strip()
         if not chosen or chosen not in self._categories:
+            self._audit("finance_categorize", "categorize_expense", "document", expense.document_id, "failure", metadata={"reason": "invalid_category"})
             raise ValueError("category must be explicitly confirmed and present in configured categories")
 
         folder = f"expenses/{chosen}"
         content = Path(expense.source_path).read_bytes()
+        assert_allows("finance_categorize.drive")
         location = self._drive.save_document(
             filename=Path(expense.source_path).name,
             content=content,

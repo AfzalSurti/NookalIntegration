@@ -23,7 +23,7 @@ def _expense(tmp_path: Path, *, status: str = "extracted") -> ExpenseRecord:
     return ExpenseRecord(
         document_id="doc_synthetic_1", source_path=str(source), date="2026-09-01",
         supplier="Synthetic Supplier", amount="110.00", gst="10.00",
-        description="Synthetic service", category=None, payment_reference="SYN-1",
+        description="Synthetic service", category="professional_services", payment_reference="SYN-1",
         missing_fields=(), extraction_confidence=0.95, status=status, review_task_id=None,
         created_at="2026-09-01T00:00:00+00:00",
     )

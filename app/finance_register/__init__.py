@@ -11,6 +11,7 @@ from openpyxl import Workbook, load_workbook
 from app.finance_categorize import CategorizedExpense
 from app.finance_extract import ExpenseRecord
 from app.shared import audit as audit_mod
+from app.shared.kill_switch import assert_allows
 
 
 HEADERS = (
@@ -36,9 +37,12 @@ class FinanceRegister:
     def append(self, expense: ExpenseRecord | CategorizedExpense, *, filed_location: str | None = None) -> dict[str, Any]:
         record, location = _parts(expense, filed_location)
         if record.status != "extracted":
+            self._audit("finance_register", "append_expense", "document", record.document_id, "failure", metadata={"reason": "not_confirmed"})
             raise ValueError("only confirmed extracted expenses may enter the register")
         if not record.category:
+            self._audit("finance_register", "append_expense", "document", record.document_id, "failure", metadata={"reason": "category_missing"})
             raise ValueError("category is required before registering an expense")
+        assert_allows("finance_register.excel")
         with _lock_for(self._path):
             workbook = _load_or_create(self._path)
             sheet = workbook.active
