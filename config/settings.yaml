@@ -10,7 +10,7 @@ paths:
   sent_log_dir: data/working/sent
 
 nookal:
-  base_url: https://api.nookal.com  # confirm against current docs
+  base_url: https://api.nookal.com/production/v2/
   # Leave null until docs confirm the real limit; client will use a conservative default.
   requests_per_second: 2
   max_retries: 4

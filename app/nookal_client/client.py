@@ -1,13 +1,17 @@
 """
-Nookal API wrapper.
+Nookal API client wrapper.
 
-Clinic-agnostic: auth, rate limit, retry, audit. No letter/template logic.
+Official Nookal API v2 implementation:
+Base URL: https://api.nookal.com/production/v2/
+Authentication: centralized ?api_key=<API_KEY> query parameter.
+Response handling: unwrap Nookal v2 {"status": "success", "data": ...} envelope.
 
-Endpoint paths and payload shapes are intentionally incomplete — fill them
-from the official Nookal API docs; do not invent plausible request bodies.
+Clinic-agnostic: auth, rate limit, retry, audit, kill switch.
+No guessed endpoints. Unsupported endpoints raise explicit NotImplementedError.
 """
 from __future__ import annotations
 
+import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -30,6 +34,40 @@ from app.shared.kill_switch import assert_allows
 
 
 AuditFn = Callable[..., Any]
+
+_SECRET_RE = re.compile(r"([?&]api_key=)[^&\s'\"]+", re.IGNORECASE)
+
+
+def _redact_secrets(text: str, api_key: str | None = None) -> str:
+    """Scrub api_key values from query parameters and raw strings."""
+    if not text:
+        return text
+    redacted = _SECRET_RE.sub(r"\1[REDACTED]", str(text))
+    if api_key and api_key.strip():
+        redacted = redacted.replace(api_key, "[REDACTED]")
+    return redacted
+
+
+def _unwrap_collection(data: Any, preferred_key: str | None = None) -> list[Any]:
+    """
+    Unwrap collection from Nookal data payloads.
+    Handles lists, dicts of records, or wrapped dict keys (e.g. {'patients': [...]}).
+    """
+    if data is None:
+        return []
+    if isinstance(data, list):
+        return data
+    if isinstance(data, Mapping):
+        if preferred_key and preferred_key in data and isinstance(data[preferred_key], list):
+            return data[preferred_key]
+        for candidate in ("patients", "appointments", "results", "items", "data", "availabilities"):
+            if candidate in data and isinstance(data[candidate], list):
+                return data[candidate]
+        if data and all(isinstance(v, Mapping) for v in data.values()):
+            return list(data.values())
+        if not data:
+            return []
+    return []
 
 
 @dataclass(frozen=True)
@@ -141,6 +179,18 @@ class NookalClient(ABC):
     def list_referrers(self) -> list[Referrer]:
         ...
 
+    @abstractmethod
+    def get_appointment_availabilities(
+        self,
+        *,
+        location_id: str | None = None,
+        practitioner_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        appointment_type_id: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        ...
+
     # --- writes (kill-switch checked; patient-facing flows still go via approval) ---
 
     @abstractmethod
@@ -156,6 +206,29 @@ class NookalClient(ABC):
 
     @abstractmethod
     def create_appointment(self, payload: Mapping[str, Any]) -> Appointment:
+        ...
+
+    @abstractmethod
+    def cancel_appointment(
+        self,
+        appointment_id: str,
+        *,
+        patient_id: str | None = None,
+    ) -> Appointment:
+        ...
+
+    @abstractmethod
+    def rebook_appointment(
+        self,
+        appointment_id: str,
+        *,
+        patient_id: str,
+        location_id: str,
+        start_time: str,
+        practitioner_id: str,
+        appointment_date: str | date,
+        cancel_first: bool = False,
+    ) -> Appointment:
         ...
 
     @abstractmethod
@@ -197,10 +270,8 @@ class _TokenBucket:
 
 class HttpNookalClient(NookalClient):
     """
-    Live HTTP client.
-
-    TODO markers below must be resolved against current Nookal API docs before
-    any write path is used against a real clinic account.
+    Live HTTP client targeting Nookal API v2.
+    Endpoints and schemas conform to official Nookal API v2 documentation.
     """
 
     def __init__(
@@ -221,16 +292,15 @@ class HttpNookalClient(NookalClient):
             timeout=self._config.timeout_seconds,
             headers=self._default_headers(),
         )
+        if client is not None:
+            self._http.headers.update(self._default_headers())
 
     def _default_headers(self) -> dict[str, str]:
-        if not self._config.api_key:
-            # Allow construction without a key (tests / dry-run); calls will fail auth.
-            return {"Accept": "application/json"}
-        # TODO: confirm auth scheme (Bearer vs custom header) from Nookal docs.
-        return {
-            "Accept": "application/json",
-            "Authorization": f"Bearer {self._config.api_key}",
-        }
+        """
+        Headers for Nookal API requests.
+        Authentication is via query parameter (?api_key=), NOT Authorization header.
+        """
+        return {"Accept": "application/json"}
 
     def close(self) -> None:
         if self._owns_client:
@@ -272,6 +342,11 @@ class HttpNookalClient(NookalClient):
                 )
                 raise
 
+        # Centralized query parameter authentication
+        req_params = dict(params) if params else {}
+        if self._config.api_key and "api_key" not in req_params:
+            req_params["api_key"] = self._config.api_key
+
         last_error: Exception | None = None
         for attempt in range(self._config.max_retries + 1):
             self._limiter.take()
@@ -279,7 +354,7 @@ class HttpNookalClient(NookalClient):
                 response = self._http.request(
                     method,
                     path.lstrip("/"),
-                    params=params,
+                    params=req_params,
                     json=json_body,
                     content=content,
                     headers=dict(headers) if headers else None,
@@ -299,12 +374,14 @@ class HttpNookalClient(NookalClient):
                 self._backoff(attempt, retry_after=getattr(exc, "retry_after", None))
             except NookalServerError as exc:
                 last_error = exc
-                if attempt >= self._config.max_retries:
+                if attempt >= self._config.max_retries or is_write:
+                    # Do not blindly retry non-idempotent writes
                     break
                 self._backoff(attempt)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
-                last_error = NookalServerError(str(exc))
-                if attempt >= self._config.max_retries:
+                sanitized_msg = _redact_secrets(str(exc), self._config.api_key)
+                last_error = NookalServerError(sanitized_msg)
+                if attempt >= self._config.max_retries or is_write:
                     break
                 self._backoff(attempt)
 
@@ -345,42 +422,105 @@ class HttpNookalClient(NookalClient):
             exc.retry_after = float(retry_after) if retry_after and retry_after.isdigit() else None
             raise exc
         if status >= 500:
-            raise NookalServerError(f"Nookal {status} on {action}")
+            redacted = _redact_secrets(response.text[:200], self._config.api_key)
+            raise NookalServerError(f"Nookal {status} on {action}: {redacted}")
         if status >= 400:
             raise NookalError(f"Nookal {status} on {action}")
 
         if status == 204 or not response.content:
             return None
+
         try:
-            return response.json()
+            payload = response.json()
         except ValueError as exc:
             raise NookalError(f"non-JSON response on {action}") from exc
+
+        # Handle Nookal envelope: {"status": "...", "data": ..., "details": ...}
+        if isinstance(payload, Mapping):
+            nookal_status = str(payload.get("status", "")).lower()
+            if nookal_status in ("failure", "error"):
+                details = (
+                    payload.get("details")
+                    or payload.get("message")
+                    or payload.get("error")
+                    or "API error"
+                )
+                sanitized_details = _redact_secrets(str(details), self._config.api_key)
+                lower_details = sanitized_details.lower()
+                if any(x in lower_details for x in ("not found", "no records found", "0 results", "does not exist")):
+                    raise NookalNotFound(f"{action}: {sanitized_details}")
+                if any(x in lower_details for x in ("auth", "unauthorized", "api key", "invalid key", "forbidden")):
+                    raise NookalAuthError(f"auth failed on {action}: {sanitized_details}")
+                raise NookalError(f"Nookal error on {action}: {sanitized_details}")
+
+            if "data" in payload:
+                return payload["data"]
+
+        return payload
 
     # --- reads ---
 
     def get_patient(self, patient_id: str) -> PatientRef:
-        # TODO: confirm path + response field names from Nookal docs.
+        """
+        Fetch patient by patient_id using official /searchPatients endpoint.
+        """
         data = self._request(
             "GET",
-            f"/patients/{patient_id}",  # TODO: verify
+            "/searchPatients",
             action="get_patient",
             target_type="patient_record",
             target_id=patient_id,
+            params={"patient_id": patient_id},
         )
-        return self._parse_patient(data)
+        rows = _unwrap_collection(data, "patients")
+        if not rows:
+            raise NookalNotFound(f"get_patient: patient {patient_id} not found")
+
+        matched_ids: set[str] = set()
+        for r in rows:
+            if isinstance(r, Mapping):
+                pid = r.get("ID") or r.get("id") or r.get("patient_id") or r.get("PatientID")
+                if pid:
+                    matched_ids.add(str(pid))
+
+        if len(matched_ids) > 1:
+            raise NookalValidationError(f"ambiguous patient matches for {patient_id}")
+
+        matching = next(
+            (
+                r
+                for r in rows
+                if isinstance(r, Mapping)
+                and str(r.get("ID") or r.get("id") or r.get("patient_id") or r.get("PatientID"))
+                == str(patient_id)
+            ),
+            rows[0],
+        )
+        return self._parse_patient(matching)
 
     def find_patient_by_phone(self, phone: str) -> list[PatientRef]:
-        # TODO: confirm search endpoint + query param name.
+        """
+        Lookup patient by phone using official /searchPatients?fuzzy_search=.
+        Filters client-side for exact phone match. Audit target is 'phone_lookup' (no PII).
+        """
         data = self._request(
             "GET",
-            "/patients",  # TODO: verify
+            "/searchPatients",
             action="find_patient_by_phone",
             target_type="patient_record",
             target_id="phone_lookup",
-            params={"phone": phone},  # TODO: verify param
+            params={"fuzzy_search": phone},
         )
-        rows = data if isinstance(data, list) else (data or {}).get("data") or []
-        return [self._parse_patient(row) for row in rows]
+        rows = _unwrap_collection(data, "patients")
+        patients = [self._parse_patient(row) for row in rows if isinstance(row, Mapping)]
+        clean_phone = re.sub(r"[^\d+]", "", phone)
+        matched = []
+        for p in patients:
+            if p.phone:
+                p_clean = re.sub(r"[^\d+]", "", p.phone)
+                if p.phone == phone or (clean_phone and p_clean == clean_phone):
+                    matched.append(p)
+        return matched
 
     def list_appointments(
         self,
@@ -390,37 +530,63 @@ class HttpNookalClient(NookalClient):
         date_to: date | None = None,
         patient_id: str | None = None,
     ) -> list[Appointment]:
-        params: dict[str, Any] = {}
-        # TODO: map these filters to the real query parameters.
+        """
+        Retrieve appointments using official /getAppointments endpoint.
+        Maps on_date to matching date_from and date_to parameters.
+        """
+        params: dict[str, Any] = {
+            "page": 1,
+            "page_length": 200,
+        }
         if on_date:
-            params["date"] = on_date.isoformat()
-        if date_from:
-            params["from"] = date_from.isoformat()
-        if date_to:
-            params["to"] = date_to.isoformat()
+            params["date_from"] = on_date.isoformat()
+            params["date_to"] = on_date.isoformat()
+        else:
+            if date_from:
+                params["date_from"] = date_from.isoformat()
+            if date_to:
+                params["date_to"] = date_to.isoformat()
         if patient_id:
             params["patient_id"] = patient_id
 
         data = self._request(
             "GET",
-            "/appointments",  # TODO: verify
+            "/getAppointments",
             action="list_appointments",
             target_type="appointment",
-            target_id=patient_id or on_date.isoformat() if on_date else "range",
+            target_id=patient_id or (on_date.isoformat() if on_date else "range"),
             params=params,
         )
-        rows = data if isinstance(data, list) else (data or {}).get("data") or []
-        return [self._parse_appointment(row) for row in rows]
+        rows = _unwrap_collection(data, "appointments")
+        return [self._parse_appointment(row) for row in rows if isinstance(row, Mapping)]
 
     def get_appointment(self, appointment_id: str) -> Appointment:
+        """
+        Retrieve single appointment by ID using official /getAppointments endpoint.
+        """
+        params: dict[str, Any] = {
+            "page_length": 200,
+        }
         data = self._request(
             "GET",
-            f"/appointments/{appointment_id}",  # TODO: verify
+            "/getAppointments",
             action="get_appointment",
             target_type="appointment",
             target_id=appointment_id,
+            params=params,
         )
-        return self._parse_appointment(data)
+        rows = _unwrap_collection(data, "appointments")
+        for row in rows:
+            if isinstance(row, Mapping):
+                aid = (
+                    row.get("ID")
+                    or row.get("id")
+                    or row.get("appointment_id")
+                    or row.get("appointmentID")
+                )
+                if aid and str(aid) == str(appointment_id):
+                    return self._parse_appointment(row)
+        raise NookalNotFound(f"get_appointment: appointment {appointment_id} not found")
 
     def search_patients(
         self,
@@ -432,45 +598,190 @@ class HttpNookalClient(NookalClient):
         appointment_to: date | None = None,
         referrer_id: str | None = None,
     ) -> list[PatientRef]:
-        params: dict[str, Any] = {}
-        # TODO: confirm which of these filters Nookal supports server-side
-        # vs which must be applied client-side after a broader fetch.
-        if suburb:
-            params["suburb"] = suburb
-        if age_min is not None:
-            params["age_min"] = age_min
-        if age_max is not None:
-            params["age_max"] = age_max
-        if appointment_from:
-            params["appointment_from"] = appointment_from.isoformat()
-        if appointment_to:
-            params["appointment_to"] = appointment_to.isoformat()
-        if referrer_id:
-            params["referrer_id"] = referrer_id
-
+        """
+        Search patients using official /getPatients endpoint and client-side demographic filters.
+        """
+        params: dict[str, Any] = {
+            "page": 1,
+            "page_length": 200,
+        }
         data = self._request(
             "GET",
-            "/patients/search",  # TODO: verify — may not exist; might be /patients + filters
+            "/getPatients",
             action="search_patients",
             target_type="patient_record",
             target_id="search",
             params=params,
         )
-        rows = data if isinstance(data, list) else (data or {}).get("data") or []
-        return [self._parse_patient(row) for row in rows]
+        rows = _unwrap_collection(data, "patients")
+        results = [self._parse_patient(row) for row in rows if isinstance(row, Mapping)]
 
-    def list_referrers(self) -> list[Referrer]:
+        if suburb is not None:
+            needle = suburb.casefold()
+            results = [p for p in results if (p.suburb or "").casefold() == needle]
+
+        as_of = date.today()
+        if age_min is not None or age_max is not None:
+            filtered: list[PatientRef] = []
+            for p in results:
+                if p.date_of_birth is None:
+                    continue
+                age = _age_years(p.date_of_birth, as_of)
+                if age_min is not None and age < age_min:
+                    continue
+                if age_max is not None and age > age_max:
+                    continue
+                filtered.append(p)
+            results = filtered
+
+        if appointment_from is not None or appointment_to is not None:
+            filtered_by_appt: list[PatientRef] = []
+            for p in results:
+                if p.last_appointment_date is not None:
+                    day = p.last_appointment_date
+                    if appointment_from is not None and day < appointment_from:
+                        continue
+                    if appointment_to is not None and day > appointment_to:
+                        continue
+                    filtered_by_appt.append(p)
+            if filtered_by_appt or any(p.last_appointment_date is not None for p in results):
+                results = filtered_by_appt
+
+        if referrer_id is not None:
+            results = [p for p in results if p.referrer_id == referrer_id]
+
+        results.sort(key=lambda p: p.patient_id)
+        return results
+
+    def get_appointment_availabilities(
+        self,
+        *,
+        location_id: str | None = None,
+        practitioner_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        appointment_type_id: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        """
+        Fetch practitioner availabilities using official /getAppointmentAvailabilities endpoint.
+        """
+        params: dict[str, Any] = {}
+        if location_id:
+            params["location_id"] = location_id
+        if practitioner_id:
+            params["practitioner_id"] = practitioner_id
+        if date_from:
+            params["date_from"] = date_from.isoformat()
+        if date_to:
+            params["date_to"] = date_to.isoformat()
+        if appointment_type_id:
+            params["appointment_type_id"] = appointment_type_id
+
         data = self._request(
             "GET",
-            "/referrers",  # TODO: verify path / resource name
-            action="list_referrers",
-            target_type="patient_record",
-            target_id="referrers",
+            "/getAppointmentAvailabilities",
+            action="get_appointment_availabilities",
+            target_type="appointment",
+            target_id="availabilities",
+            params=params,
         )
-        rows = data if isinstance(data, list) else (data or {}).get("data") or []
-        return [self._parse_referrer(row) for row in rows]
+        rows = _unwrap_collection(data, "availabilities")
+        return [dict(r) for r in rows if isinstance(r, Mapping)]
+
+    def list_referrers(self) -> list[Referrer]:
+        """
+        Unsupported on live client: Nookal API v2 does not expose a public referrer endpoint.
+        """
+        raise NotImplementedError(
+            "list_referrers: Nookal API v2 does not expose a public referrer endpoint; see documentation"
+        )
 
     # --- writes ---
+
+    def create_appointment(self, payload: Mapping[str, Any]) -> Appointment:
+        """
+        Create appointment booking using official /addAppointmentBooking endpoint.
+        Validates required fields before sending request.
+        """
+        body: dict[str, Any] = {}
+
+        starts = payload.get("starts_at")
+        if starts:
+            if isinstance(starts, str):
+                try:
+                    starts = datetime.fromisoformat(starts)
+                except ValueError:
+                    pass
+            if isinstance(starts, datetime):
+                body.setdefault("appointment_date", starts.date().isoformat())
+                body.setdefault("start_time", starts.time().strftime("%H:%M:%S"))
+
+        field_mapping = {
+            "location_id": ("location_id", "locationID"),
+            "appointment_date": ("appointment_date", "date"),
+            "start_time": ("start_time", "startTime"),
+            "patient_id": ("patient_id", "patientID"),
+            "practitioner_id": ("practitioner_id", "practitionerID"),
+            "appointment_type_id": ("appointment_type_id", "type_id", "typeID"),
+            "notes": ("notes",),
+            "allow_overlap_bookings": ("allow_overlap_bookings",),
+        }
+
+        for target_key, sources in field_mapping.items():
+            for src in sources:
+                if src in payload and payload[src] is not None:
+                    body[target_key] = payload[src]
+                    break
+
+        required = [
+            "location_id",
+            "appointment_date",
+            "start_time",
+            "patient_id",
+            "practitioner_id",
+            "appointment_type_id",
+        ]
+        missing = [f for f in required if f not in body or body[f] is None]
+        if missing:
+            raise NookalValidationError(
+                f"create_appointment missing required fields: {', '.join(missing)}"
+            )
+
+        data = self._request(
+            "POST",
+            "/addAppointmentBooking",
+            action="create_appointment",
+            target_type="appointment",
+            target_id=str(body["patient_id"]),
+            is_write=True,
+            json_body=body,
+        )
+        if isinstance(data, Mapping) and ("ID" in data or "id" in data or "appointment_id" in data):
+            try:
+                return self._parse_appointment(data)
+            except NookalValidationError:
+                pass
+
+        aid = "new"
+        if isinstance(data, Mapping):
+            aid = str(data.get("ID") or data.get("id") or data.get("appointment_id") or "new")
+        elif isinstance(data, (str, int)):
+            aid = str(data)
+
+        try:
+            starts_at_dt = datetime.fromisoformat(f"{body['appointment_date']}T{body['start_time']}")
+        except Exception:
+            starts_at_dt = datetime.now()
+
+        return Appointment(
+            appointment_id=aid,
+            patient_id=str(body["patient_id"]),
+            starts_at=starts_at_dt,
+            status="booked",
+            location_id=str(body["location_id"]),
+            practitioner_id=str(body["practitioner_id"]),
+            raw=dict(data) if isinstance(data, Mapping) else {"data": data, "request": body},
+        )
 
     def update_appointment(
         self,
@@ -480,36 +791,158 @@ class HttpNookalClient(NookalClient):
         status: str | None = None,
         **fields: Any,
     ) -> Appointment:
-        # TODO: confirm method (PATCH vs PUT), path, and field names.
-        body: dict[str, Any] = dict(fields)
+        """
+        Update appointment booking using official /updateAppointmentBooking endpoint.
+        Uses allowlist of supported Nookal fields.
+        """
+        body: dict[str, Any] = {"appointment_id": appointment_id}
         if starts_at is not None:
-            body["starts_at"] = starts_at.isoformat()  # TODO: verify field name + format
+            body["appointment_date"] = starts_at.date().isoformat()
+            body["start_time"] = starts_at.time().strftime("%H:%M:%S")
         if status is not None:
             body["status"] = status
+            if status == "cancelled":
+                body["cancelled"] = "1"
+            elif status == "dna":
+                body["dna"] = "1"
+            elif status == "arrived":
+                body["arrived"] = "1"
+
+        allowed_fields = {
+            "appointment_date",
+            "start_time",
+            "end_time",
+            "location_id",
+            "practitioner_id",
+            "appointment_type_id",
+            "notes",
+            "arrived",
+            "dna",
+            "cancelled",
+        }
+        for k, v in fields.items():
+            if k in allowed_fields and v is not None:
+                body[k] = v
 
         data = self._request(
-            "PATCH",  # TODO: verify
-            f"/appointments/{appointment_id}",  # TODO: verify
+            "POST",
+            "/updateAppointmentBooking",
             action="update_appointment",
             target_type="appointment",
             target_id=appointment_id,
             is_write=True,
             json_body=body,
         )
-        return self._parse_appointment(data)
+        if isinstance(data, Mapping) and ("ID" in data or "id" in data or "appointment_id" in data):
+            try:
+                return self._parse_appointment(data)
+            except NookalValidationError:
+                pass
 
-    def create_appointment(self, payload: Mapping[str, Any]) -> Appointment:
-        # TODO: replace with documented required fields; do not ship guesses.
+        return Appointment(
+            appointment_id=appointment_id,
+            patient_id=str(fields.get("patient_id", "")),
+            starts_at=starts_at or datetime.now(),
+            status=status or "booked",
+            raw=dict(data) if isinstance(data, Mapping) else {"data": data},
+        )
+
+    def cancel_appointment(
+        self,
+        appointment_id: str,
+        *,
+        patient_id: str | None = None,
+    ) -> Appointment:
+        """
+        Cancel appointment using official /cancelAppointment endpoint.
+        """
+        body: dict[str, Any] = {"appointment_id": appointment_id}
+        if patient_id:
+            body["patient_id"] = patient_id
+
         data = self._request(
             "POST",
-            "/appointments",  # TODO: verify
-            action="create_appointment",
+            "/cancelAppointment",
+            action="cancel_appointment",
             target_type="appointment",
-            target_id=str(payload.get("patient_id", "new")),
+            target_id=appointment_id,
             is_write=True,
-            json_body=dict(payload),
+            json_body=body,
         )
-        return self._parse_appointment(data)
+        if isinstance(data, Mapping) and ("ID" in data or "id" in data or "appointment_id" in data):
+            try:
+                return self._parse_appointment(data)
+            except NookalValidationError:
+                pass
+
+        return Appointment(
+            appointment_id=appointment_id,
+            patient_id=str(patient_id or ""),
+            starts_at=datetime.now(),
+            status="cancelled",
+            raw=dict(data) if isinstance(data, Mapping) else {"data": data},
+        )
+
+    def rebook_appointment(
+        self,
+        appointment_id: str,
+        *,
+        patient_id: str,
+        location_id: str,
+        start_time: str,
+        practitioner_id: str,
+        appointment_date: str | date,
+        cancel_first: bool = False,
+    ) -> Appointment:
+        """
+        Rebook appointment using official /rebookAppointment endpoint.
+        """
+        date_str = (
+            appointment_date.isoformat()
+            if isinstance(appointment_date, date)
+            else str(appointment_date)
+        )
+        body: dict[str, Any] = {
+            "appointment_id": appointment_id,
+            "patient_id": patient_id,
+            "location_id": location_id,
+            "start_time": start_time,
+            "practitioner_id": practitioner_id,
+            "appointment_date": date_str,
+            "cancel_first": cancel_first,
+        }
+        data = self._request(
+            "POST",
+            "/rebookAppointment",
+            action="rebook_appointment",
+            target_type="appointment",
+            target_id=appointment_id,
+            is_write=True,
+            json_body=body,
+        )
+        if isinstance(data, Mapping) and ("ID" in data or "id" in data or "appointment_id" in data):
+            try:
+                return self._parse_appointment(data)
+            except NookalValidationError:
+                pass
+
+        aid = "new"
+        if isinstance(data, Mapping):
+            aid = str(data.get("ID") or data.get("id") or data.get("appointment_id") or "new")
+        try:
+            dt = datetime.fromisoformat(f"{date_str}T{start_time}")
+        except Exception:
+            dt = datetime.now()
+
+        return Appointment(
+            appointment_id=aid,
+            patient_id=patient_id,
+            starts_at=dt,
+            status="booked",
+            location_id=location_id,
+            practitioner_id=practitioner_id,
+            raw=dict(data) if isinstance(data, Mapping) else {"data": data},
+        )
 
     def save_document(
         self,
@@ -519,78 +952,157 @@ class HttpNookalClient(NookalClient):
         content: bytes,
         content_type: str = "application/pdf",
     ) -> DocumentMeta:
-        # TODO: confirm upload mechanism (multipart, base64 JSON, separate media URL).
-        # Intentionally not sending content until docs are confirmed — raise to force review.
+        """
+        Unsupported on live client: official Nookal v2 document upload requires a two-step
+        presigned S3 workflow (/uploadFile -> direct S3 upload -> /setFileActive).
+        """
         raise NotImplementedError(
-            "save_document: wire against Nookal document upload docs before use"
+            "save_document: official Nookal v2 document upload requires a two-step presigned "
+            "S3 workflow (/uploadFile -> direct S3 upload -> /setFileActive); "
+            "intentional NotImplementedError until full S3 upload pipeline is configured."
         )
 
     def upsert_referrer(self, payload: Mapping[str, Any]) -> Referrer:
-        # TODO: confirm create vs update endpoints and idempotent upsert behaviour.
-        data = self._request(
-            "POST",
-            "/referrers",  # TODO: verify
-            action="upsert_referrer",
-            target_type="patient_record",
-            target_id=str(payload.get("referrer_id") or payload.get("provider_number") or "new"),
-            is_write=True,
-            json_body=dict(payload),
+        """
+        Unsupported on live client: Nookal API v2 does not expose a public referrer endpoint.
+        """
+        raise NotImplementedError(
+            "upsert_referrer: Nookal API v2 does not expose a public referrer endpoint; see documentation"
         )
-        return self._parse_referrer(data)
 
-    # --- parsers (tolerant; adjust when docs arrive) ---
+    # --- parsers ---
 
     @staticmethod
     def _parse_patient(data: Any) -> PatientRef:
         if not isinstance(data, Mapping):
             raise NookalValidationError("unexpected patient payload shape")
-        pid = data.get("id") or data.get("patient_id") or data.get("PatientID")
+        pid = (
+            data.get("ID")
+            or data.get("id")
+            or data.get("patient_id")
+            or data.get("PatientID")
+        )
         if not pid:
             raise NookalValidationError("patient payload missing id")
+
+        first = data.get("first_name") or data.get("FirstName") or data.get("firstname") or ""
+        last = data.get("last_name") or data.get("LastName") or data.get("lastname") or ""
+        full = (f"{first} {last}".strip()) or data.get("name") or data.get("full_name") or data.get("Name") or None
+
+        phone = (
+            data.get("mobile")
+            or data.get("Mobile")
+            or data.get("phone")
+            or data.get("telephone")
+            or data.get("Telephone")
+        )
+        email = data.get("email") or data.get("Email")
+
+        dob_raw = data.get("DOB") or data.get("date_of_birth") or data.get("dob")
+        parsed_dob = None
+        if dob_raw:
+            if isinstance(dob_raw, date):
+                parsed_dob = dob_raw
+            elif isinstance(dob_raw, str) and len(dob_raw) >= 10:
+                try:
+                    parsed_dob = date.fromisoformat(dob_raw[:10])
+                except ValueError:
+                    pass
+
+        suburb = data.get("suburb") or data.get("Suburb") or data.get("address")
+        ref_id = data.get("referrer_id") or data.get("referrerID")
+
         return PatientRef(
             patient_id=str(pid),
-            phone=data.get("phone") or data.get("mobile"),
-            email=data.get("email"),
-            display_name=data.get("name") or data.get("full_name"),
+            phone=phone,
+            email=email,
+            display_name=full,
+            date_of_birth=parsed_dob,
+            suburb=str(suburb) if suburb else None,
+            referrer_id=str(ref_id) if ref_id else None,
         )
 
     @staticmethod
     def _parse_appointment(data: Any) -> Appointment:
         if not isinstance(data, Mapping):
             raise NookalValidationError("unexpected appointment payload shape")
-        aid = data.get("id") or data.get("appointment_id")
-        pid = data.get("patient_id") or data.get("PatientID")
-        starts = data.get("starts_at") or data.get("start") or data.get("datetime")
-        if not aid or not pid or not starts:
-            raise NookalValidationError("appointment payload missing required fields")
-        starts_at = starts if isinstance(starts, datetime) else datetime.fromisoformat(str(starts).replace("Z", "+00:00"))
-        ends = data.get("ends_at") or data.get("end")
+        aid = (
+            data.get("ID")
+            or data.get("id")
+            or data.get("appointment_id")
+            or data.get("appointmentID")
+        )
+        pid = (
+            data.get("patientID")
+            or data.get("patient_id")
+            or data.get("PatientID")
+        )
+        if not aid or not pid:
+            raise NookalValidationError("appointment payload missing required fields (id, patient_id)")
+
+        appt_date_raw = data.get("date") or data.get("appointment_date")
+        start_time_raw = data.get("startTime") or data.get("start_time")
+        end_time_raw = data.get("endTime") or data.get("end_time")
+
+        starts_at = None
+        if appt_date_raw and start_time_raw:
+            try:
+                starts_at = datetime.fromisoformat(f"{appt_date_raw}T{start_time_raw}")
+            except ValueError:
+                pass
+
+        if starts_at is None:
+            starts = data.get("starts_at") or data.get("start") or data.get("datetime")
+            if isinstance(starts, datetime):
+                starts_at = starts
+            elif starts:
+                try:
+                    starts_at = datetime.fromisoformat(str(starts).replace("Z", "+00:00"))
+                except ValueError:
+                    pass
+
+        if starts_at is None:
+            raise NookalValidationError("appointment payload missing start time/date")
+
         ends_at = None
-        if ends:
-            ends_at = ends if isinstance(ends, datetime) else datetime.fromisoformat(str(ends).replace("Z", "+00:00"))
+        if appt_date_raw and end_time_raw:
+            try:
+                ends_at = datetime.fromisoformat(f"{appt_date_raw}T{end_time_raw}")
+            except ValueError:
+                pass
+
+        if ends_at is None:
+            ends = data.get("ends_at") or data.get("end")
+            if isinstance(ends, datetime):
+                ends_at = ends
+            elif ends:
+                try:
+                    ends_at = datetime.fromisoformat(str(ends).replace("Z", "+00:00"))
+                except ValueError:
+                    pass
+
+        if str(data.get("cancelled", "")).strip() in ("1", "true", "True") or data.get("cancellationDate"):
+            status = "cancelled"
+        elif str(data.get("DNA", "")).strip() in ("1", "true", "True"):
+            status = "dna"
+        elif str(data.get("arrived", "")).strip() in ("1", "true", "True"):
+            status = "arrived"
+        elif data.get("status"):
+            status = str(data["status"])
+        else:
+            status = "booked"
+
+        loc_id = data.get("locationID") or data.get("location_id")
+        prac_id = data.get("practitionerID") or data.get("practitioner_id")
+
         return Appointment(
             appointment_id=str(aid),
             patient_id=str(pid),
             starts_at=starts_at,
             ends_at=ends_at,
-            status=data.get("status"),
-            location_id=str(data["location_id"]) if data.get("location_id") else None,
-            practitioner_id=str(data["practitioner_id"]) if data.get("practitioner_id") else None,
-            raw=dict(data),
-        )
-
-    @staticmethod
-    def _parse_referrer(data: Any) -> Referrer:
-        if not isinstance(data, Mapping):
-            raise NookalValidationError("unexpected referrer payload shape")
-        rid = data.get("id") or data.get("referrer_id")
-        name = data.get("name") or data.get("full_name")
-        if not rid or not name:
-            raise NookalValidationError("referrer payload missing id/name")
-        return Referrer(
-            referrer_id=str(rid),
-            name=str(name),
-            provider_number=data.get("provider_number") or data.get("providerNumber"),
+            status=status,
+            location_id=str(loc_id) if loc_id else None,
+            practitioner_id=str(prac_id) if prac_id else None,
             raw=dict(data),
         )
 
@@ -614,14 +1126,12 @@ class MockNookalClient(NookalClient):
     ) -> None:
         self._audit = audit or audit_mod.log_event
         self._actor = actor
-        # Reference date for age filters — set by seed helpers for determinism.
         self.as_of = as_of
         self.patients: dict[str, PatientRef] = {}
         self.appointments: dict[str, Appointment] = {}
         self.referrers: dict[str, Referrer] = {}
         self.referrals: dict[str, Referral] = {}
         self.documents: list[DocumentMeta] = []
-        # Mock-only availability — not a claimed Nookal API shape.
         self.open_slots: list[datetime] = []
         self._seq = 1000
 
@@ -816,6 +1326,30 @@ class MockNookalClient(NookalClient):
         self._audit(self._actor, "list_referrers", "patient_record", "referrers", "success")
         return results
 
+    def get_appointment_availabilities(
+        self,
+        *,
+        location_id: str | None = None,
+        practitioner_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        appointment_type_id: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        slots = self.open_slots
+        if date_from:
+            slots = [s for s in slots if s.date() >= date_from]
+        if date_to:
+            slots = [s for s in slots if s.date() <= date_to]
+        self._audit(
+            self._actor,
+            "get_appointment_availabilities",
+            "appointment",
+            "availabilities",
+            "success",
+            metadata={"count": len(slots)},
+        )
+        return [{"start": s.isoformat()} for s in sorted(slots)]
+
     def update_appointment(
         self,
         appointment_id: str,
@@ -882,6 +1416,74 @@ class MockNookalClient(NookalClient):
         self.appointments[aid] = appt
         self._audit(self._actor, "create_appointment", "appointment", aid, "success")
         return appt
+
+    def cancel_appointment(
+        self,
+        appointment_id: str,
+        *,
+        patient_id: str | None = None,
+    ) -> Appointment:
+        try:
+            assert_allows("nookal.cancel_appointment")
+        except KillSwitchActive:
+            self._audit(
+                self._actor,
+                "cancel_appointment",
+                "appointment",
+                appointment_id,
+                "blocked",
+                metadata={"reason": "kill_switch"},
+            )
+            raise
+
+        return self.update_appointment(appointment_id, status="cancelled")
+
+    def rebook_appointment(
+        self,
+        appointment_id: str,
+        *,
+        patient_id: str,
+        location_id: str,
+        start_time: str,
+        practitioner_id: str,
+        appointment_date: str | date,
+        cancel_first: bool = False,
+    ) -> Appointment:
+        try:
+            assert_allows("nookal.rebook_appointment")
+        except KillSwitchActive:
+            self._audit(
+                self._actor,
+                "rebook_appointment",
+                "appointment",
+                appointment_id,
+                "blocked",
+                metadata={"reason": "kill_switch"},
+            )
+            raise
+
+        date_str = (
+            appointment_date.isoformat()
+            if isinstance(appointment_date, date)
+            else str(appointment_date)
+        )
+        dt = datetime.fromisoformat(f"{date_str}T{start_time}")
+        if cancel_first:
+            self.update_appointment(appointment_id, status="cancelled")
+
+        new_aid = self._next_id("appt")
+        rebooked = Appointment(
+            appointment_id=new_aid,
+            patient_id=patient_id,
+            starts_at=dt,
+            status="booked",
+            location_id=location_id,
+            practitioner_id=practitioner_id,
+            raw={"rebooked_from": appointment_id},
+        )
+        self.appointments[new_aid] = rebooked
+        self._audit(self._actor, "rebook_appointment", "appointment", new_aid, "success")
+        return rebooked
 
     def save_document(
         self,

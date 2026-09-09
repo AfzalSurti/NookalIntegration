@@ -147,7 +147,7 @@ def get_settings(
     nookal = NookalConfig(
         base_url=os.environ.get("NOOKAL_API_BASE_URL")
         or nookal_raw.get("base_url")
-        or "https://api.nookal.com",
+        or "https://api.nookal.com/production/v2/",
         api_key=os.environ.get("NOOKAL_API_KEY", ""),
         requests_per_second=float(nookal_raw.get("requests_per_second", 2)),
         max_retries=int(nookal_raw.get("max_retries", 4)),

@@ -606,7 +606,10 @@ class CancelAppointmentWorkflow(BaseWorkflow):
 
         appt_id = str(action.payload["appointment_id"])
         try:
-            updated = ctx.nookal.update_appointment(appt_id, status="cancelled")
+            if hasattr(ctx.nookal, "cancel_appointment"):
+                updated = ctx.nookal.cancel_appointment(appt_id, patient_id=action.patient_id)
+            else:
+                updated = ctx.nookal.update_appointment(appt_id, status="cancelled")
         except KillSwitchActive:
             raise
         except NookalError as exc:
