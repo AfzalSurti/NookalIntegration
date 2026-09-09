@@ -34,6 +34,10 @@ messaging:
 approval:
   store_path: data/working/tasks.jsonl
 
+finance:
+  # Client-supplied categories only; keep this list empty until configured.
+  categories: []
+
 audit:
   # Reject metadata values longer than this (chars) — free-text dump guard.
   max_metadata_value_length: 200

@@ -16,7 +16,9 @@ from app.shared.kill_switch import assert_allows
 class DriveAdapter(Protocol):
     """Approved Drive destination; production authentication is intentionally deferred."""
 
-    def save_document(self, *, filename: str, content: bytes, content_type: str) -> str:
+    def save_document(
+        self, *, filename: str, content: bytes, content_type: str, folder: str | None = None
+    ) -> str:
         """Return an opaque Drive reference after saving an unchanged copy."""
         ...
 
@@ -24,7 +26,9 @@ class DriveAdapter(Protocol):
 class UnavailableDriveAdapter:
     """Explicit placeholder until client-authorised Google Drive access is configured."""
 
-    def save_document(self, *, filename: str, content: bytes, content_type: str) -> str:
+    def save_document(
+        self, *, filename: str, content: bytes, content_type: str, folder: str | None = None
+    ) -> str:
         raise NotImplementedError(
             "TODO: implement Google Drive upload only after client-authorised access and official API design"
         )
@@ -132,7 +136,9 @@ class FakeDriveAdapter:
         self.documents: list[tuple[str, bytes, str]] = []
         self.fail = False
 
-    def save_document(self, *, filename: str, content: bytes, content_type: str) -> str:
+    def save_document(
+        self, *, filename: str, content: bytes, content_type: str, folder: str | None = None
+    ) -> str:
         if self.fail:
             raise OSError("synthetic Drive failure")
         self.documents.append((filename, content, content_type))
