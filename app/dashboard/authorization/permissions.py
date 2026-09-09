@@ -19,3 +19,7 @@ class Permission(StrEnum):
     MARKETING_MANAGE = "marketing:manage"
     SYSTEM_VIEW = "system:view"
     SYSTEM_KILL_SWITCH = "system:kill_switch"
+    DOCUMENT_REVIEW = "document:review"
+    EXPENSE_REVIEW = "expense:review"
+    CASE_VIEW = "case:view"
+    CASE_ACKNOWLEDGE = "case:acknowledge"

@@ -150,3 +150,12 @@ class KillSwitchRequest(BaseModel):
 
 class ErrorOut(BaseModel):
     detail: str
+
+
+class DocumentResolveRequest(BaseModel):
+    patient_id: str = Field(min_length=1, max_length=128)
+
+
+class ExpenseConfirmRequest(BaseModel):
+    category: str = Field(min_length=1, max_length=128)
+    fields: dict[str, Any] = Field(default_factory=dict)

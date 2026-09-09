@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Case flags - Back to Ease{% endblock %}
+{% block content %}
+<h1>Case flags</h1>
+<p>Unacknowledged administrative session flags.</p>
+<table><tr><th>Case</th><th>Sessions</th><th>Raised</th><th>Acknowledged</th></tr>
+{% for case in cases %}<tr><td>{{ case.case_id }}</td><td>{{ case.session_count }}</td><td>{{ case.flag_raised_at }}</td><td>{{ case.acknowledged_by or "Pending" }}</td></tr>{% else %}<tr><td colspan="4">No unacknowledged flags.</td></tr>{% endfor %}
+</table>
+{% endblock %}

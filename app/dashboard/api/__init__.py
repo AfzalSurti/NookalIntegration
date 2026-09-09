@@ -8,6 +8,8 @@ from app.dashboard.api import (
     patients,
     referrers,
     system,
+    finance,
+    cases,
 )
 
 __all__ = [
@@ -20,4 +22,6 @@ __all__ = [
     "patients",
     "referrers",
     "system",
+    "finance",
+    "cases",
 ]

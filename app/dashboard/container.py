@@ -54,5 +54,10 @@ class DashboardContainer:
     llm_configured: bool = False
     nookal_live_configured: bool = False
     messaging_live_configured: bool = False
+    document_intake: Any | None = None
+    document_filer: Any | None = None
+    finance_categorizer: Any | None = None
+    finance_register: Any | None = None
+    case_tracking: Any | None = None
     session_cookie_name: str = "bte_session"
     csrf_header_name: str = "X-CSRF-Token"

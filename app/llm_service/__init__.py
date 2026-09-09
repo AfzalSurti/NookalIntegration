@@ -27,6 +27,13 @@ IntentName = Literal[
 ]
 Confidence = Literal["high", "low"]
 
+
+@dataclass(frozen=True)
+class ExpenseExtractionResult:
+    fields: dict[str, Any]
+    confidence: float
+    raw: str = field(default="", repr=False)
+
 _VALID_INTENTS = {
     "check_appointment",
     "create_appointment",
@@ -142,6 +149,25 @@ class LLMService:
             raw=raw,
         )
 
+    def extract_expense(self, document_text: str) -> ExpenseExtractionResult:
+        """Extract only stated receipt facts; missing values must remain marked."""
+        prompt = self._render_prompt("expense_extract.txt", document_text=document_text)
+        raw = self._chat(prompt)
+        parsed = _extract_json(raw) or {}
+        fields = parsed.get("fields") or {}
+        if not isinstance(fields, dict):
+            fields = {}
+        confidence_raw = parsed.get("confidence", 0.0)
+        try:
+            confidence = max(0.0, min(1.0, float(confidence_raw)))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        return ExpenseExtractionResult(
+            fields=_normalise_extracted_fields(fields),
+            confidence=confidence,
+            raw=raw,
+        )
+
     def _render_prompt(self, filename: str, **kwargs: str) -> str:
         path = self._prompts / filename
         if not path.exists():
@@ -202,3 +228,25 @@ def _extract_json(text: str) -> dict[str, Any] | None:
         return data if isinstance(data, dict) else None
     except json.JSONDecodeError:
         return None
+
+
+_EXPENSE_FIELDS = (
+    "date", "supplier", "amount", "gst", "description", "category", "payment_reference"
+)
+
+
+def _normalise_extracted_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    """Make absent and explicit missing values uniformly null plus a marker."""
+    normalised: dict[str, Any] = {}
+    missing: list[str] = []
+    for name in _EXPENSE_FIELDS:
+        value = fields.get(name)
+        if value is None or (
+            isinstance(value, str) and value.strip().upper() == f"[MISSING: {name.upper()}]"
+        ):
+            normalised[name] = None
+            missing.append(name)
+        else:
+            normalised[name] = value
+    normalised["missing_fields"] = missing
+    return normalised

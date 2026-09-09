@@ -13,6 +13,8 @@ _STAFF: frozenset[Permission] = frozenset(
         Permission.APPROVAL_VIEW,
         Permission.MARKETING_VIEW,
         Permission.SYSTEM_VIEW,
+        Permission.DOCUMENT_REVIEW,
+        Permission.EXPENSE_REVIEW,
     }
 )
 
@@ -22,10 +24,15 @@ _PRACTITIONER: frozenset[Permission] = _STAFF | frozenset(
         Permission.APPROVAL_APPROVE,
         Permission.APPROVAL_REJECT,
         Permission.REFERRER_VIEW,
+        Permission.CASE_VIEW,
+        Permission.CASE_ACKNOWLEDGE,
     }
 )
 
-_ADMIN: frozenset[Permission] = _PRACTITIONER | frozenset(
+_ADMIN: frozenset[Permission] = (_PRACTITIONER - {
+    Permission.CASE_VIEW,
+    Permission.CASE_ACKNOWLEDGE,
+}) | frozenset(
     {
         Permission.REFERRER_RESOLVE,
         Permission.AUDIT_VIEW,
