@@ -1,7 +1,7 @@
-"""
+﻿"""
 Append-only audit log.
 
-Logs identifiers and action types only — never patient names, clinical
+Logs identifiers and action types only â€” never patient names, clinical
 content, or full message bodies. Callers that try get AuditRejected.
 """
 from __future__ import annotations
@@ -73,11 +73,11 @@ class AuditLog:
             key_l = str(key).lower()
             if key_l in forbidden or _SUSPICIOUS_KEY.search(key_l):
                 raise AuditRejected(
-                    f"metadata key '{key}' looks sensitive — audit logs take IDs only"
+                    f"metadata key '{key}' looks sensitive â€” audit logs take IDs only"
                 )
             if isinstance(value, str) and len(value) > max_len:
                 raise AuditRejected(
-                    f"metadata '{key}' exceeds {max_len} chars — refuse free-text dumps"
+                    f"metadata '{key}' exceeds {max_len} chars â€” refuse free-text dumps"
                 )
             if isinstance(value, (dict, list)):
                 serialised = json.dumps(value, ensure_ascii=False)
@@ -113,6 +113,9 @@ class AuditLog:
                 f.write(line)
                 f.flush()
         return event
+
+    # Allow AuditLog to be used directly as an AuditFn callable.
+    __call__ = log_event
 
     def query(
         self,

@@ -1,4 +1,4 @@
-"""Local offline dashboard entrypoint (mock Nookal + fake messaging)."""
+﻿"""Local offline dashboard entrypoint (mock Nookal + fake messaging)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -75,7 +75,7 @@ def build_offline_container() -> DashboardContainer:
             )
         )
     elif os.environ.get("AUTOMATION_ALLOW_DEV_LOGIN") == "1":
-        # Ephemeral local-only credentials — printed once; never committed.
+        # Ephemeral local-only credentials â€” printed once; never committed.
         generated = secrets.token_urlsafe(12)
         print(f"[dashboard] ephemeral admin password: {generated}")
         users.append(
@@ -94,7 +94,7 @@ def build_offline_container() -> DashboardContainer:
         nookal=nookal,
         messaging=messaging,
         approval=approval,
-        audit=audit.log_event,
+        audit=audit,
         auth_backend=MemoryAuthBackend(users),
         sessions=SessionStore(clock=clock),
         policy=AuthorizationPolicy(),
