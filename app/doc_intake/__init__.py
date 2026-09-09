@@ -17,6 +17,7 @@ from app.shared import audit as audit_mod
 SourceChannel = Literal["upload", "email", "whatsapp", "sms", "other"]
 PatientMatchStatus = Literal["matched", "ambiguous", "unmatched"]
 DocumentStatus = Literal["draft"]
+FilingStatus = Literal["not_filed", "filed", "failed"]
 DocumentType = Literal[
     "referral",
     "discharge_summary",
@@ -70,6 +71,10 @@ class DocumentRecord:
     classification_source: Literal["rule", "llm", "none"]
     status: DocumentStatus = "draft"
     created_at: str = ""
+    filed_to: tuple[str, ...] = ()
+    filed_at: str | None = None
+    filed_by: str | None = None
+    filing_status: FilingStatus = "not_filed"
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -239,6 +244,7 @@ __all__ = [
     "DocumentClassifier",
     "DocumentIntake",
     "DocumentRecord",
+    "FilingStatus",
     "PatientCandidate",
     "PatientMatch",
     "UploadedFile",
