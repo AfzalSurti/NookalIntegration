@@ -1,6 +1,7 @@
-﻿"""Local offline dashboard entrypoint (mock Nookal + fake messaging)."""
+"""Local offline dashboard entrypoint (mock Nookal + fake messaging)."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from app.approval import ApprovalQueue
