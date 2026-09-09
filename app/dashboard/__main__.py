@@ -94,7 +94,7 @@ def build_offline_container() -> DashboardContainer:
         nookal=nookal,
         messaging=messaging,
         approval=approval,
-        audit=audit,
+        audit=audit.log_event,
         auth_backend=MemoryAuthBackend(users),
         sessions=SessionStore(clock=clock),
         policy=AuthorizationPolicy(),
