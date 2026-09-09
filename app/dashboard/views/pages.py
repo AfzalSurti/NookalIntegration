@@ -50,7 +50,6 @@ def _base_ctx(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ctx: dict[str, Any] = {
-        "request": request,
         "user": user,
         "csrf_token": session.csrf_token if session else "",
         "pending_approvals": pending,
@@ -77,6 +76,7 @@ def _base_ctx(
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request) -> HTMLResponse:
     return _templates(request).TemplateResponse(
+        request,
         name="login.html",
         context=_base_ctx(request, None, None, extra={"error": None}),
     )
@@ -92,6 +92,7 @@ async def login_form(
     user = container.auth_backend.authenticate(username, password)
     if user is None:
         return _templates(request).TemplateResponse(
+            request,
             name="login.html",
             context=_base_ctx(request, None, None, extra={"error": "Invalid credentials"}),
             status_code=401,
@@ -128,6 +129,7 @@ async def overview(
 ) -> HTMLResponse:
     status = sys_svc.status(actor=user.user_id, role=user.role, correlation_id=correlation_id)
     return _templates(request).TemplateResponse(
+        request,
         name="overview.html",
         context=_base_ctx(
             request,
@@ -156,6 +158,7 @@ async def patients_page(
         suburb=suburb,
     )
     return _templates(request).TemplateResponse(
+        request,
         name="patients.html",
         context=_base_ctx(request, user, session, extra={"results": results, "suburb": suburb or ""}),
     )
@@ -177,6 +180,7 @@ async def patient_detail_page(
         correlation_id=correlation_id,
     )
     return _templates(request).TemplateResponse(
+        request,
         name="patient_detail.html",
         context=_base_ctx(request, user, session, extra={"patient": detail}),
     )
@@ -196,6 +200,7 @@ async def appointments_page(
         correlation_id=correlation_id,
     )
     return _templates(request).TemplateResponse(
+        request,
         name="appointments.html",
         context=_base_ctx(request, user, session, extra={"appointments": items}),
     )
@@ -215,6 +220,7 @@ async def approvals_page(
         correlation_id=correlation_id,
     )
     return _templates(request).TemplateResponse(
+        request,
         name="approvals.html",
         context=_base_ctx(request, user, session, pending=len(tasks), extra={"tasks": tasks}),
     )
@@ -234,6 +240,7 @@ async def documents_page(
         correlation_id=correlation_id,
     )
     return _templates(request).TemplateResponse(
+        request,
         name="documents.html",
         context=_base_ctx(request, user, session, extra={"tasks": tasks}),
     )
@@ -247,8 +254,9 @@ async def finance_documents_page(
     svc: Annotated[ReviewService, Depends(review_service)],
 ) -> HTMLResponse:
     return _templates(request).TemplateResponse(
-        "finance_documents.html",
-        _base_ctx(request, user, session, extra={"documents": list(svc.documents.values())}),
+        request,
+        name="finance_documents.html",
+        context=_base_ctx(request, user, session, extra={"documents": list(svc.documents.values())}),
     )
 
 
@@ -260,8 +268,9 @@ async def finance_expenses_page(
     svc: Annotated[ReviewService, Depends(review_service)],
 ) -> HTMLResponse:
     return _templates(request).TemplateResponse(
-        "finance_expenses.html",
-        _base_ctx(request, user, session, extra={"expenses": svc.list_expenses()}),
+        request,
+        name="finance_expenses.html",
+        context=_base_ctx(request, user, session, extra={"expenses": svc.list_expenses()}),
     )
 
 
@@ -275,8 +284,9 @@ async def cases_page(
     tracker = getattr(container, "case_tracking", None)
     cases = tracker.flagged_cases() if tracker is not None else []
     return _templates(request).TemplateResponse(
-        "cases.html",
-        _base_ctx(request, user, session, extra={"cases": cases}),
+        request,
+        name="cases.html",
+        context=_base_ctx(request, user, session, extra={"cases": cases}),
     )
 
 
@@ -294,6 +304,7 @@ async def referrers_page(
         correlation_id=correlation_id,
     )
     return _templates(request).TemplateResponse(
+        request,
         name="referrers.html",
         context=_base_ctx(request, user, session, extra={"conflicts": conflicts}),
     )
@@ -306,6 +317,7 @@ async def audit_page(
     session: Annotated[Session | None, Depends(get_session)],
 ) -> HTMLResponse:
     return _templates(request).TemplateResponse(
+        request,
         name="audit.html",
         context=_base_ctx(request, user, session),
     )
@@ -318,6 +330,7 @@ async def marketing_page(
     session: Annotated[Session | None, Depends(get_session)],
 ) -> HTMLResponse:
     return _templates(request).TemplateResponse(
+        request,
         name="marketing.html",
         context=_base_ctx(request, user, session),
     )
@@ -333,6 +346,7 @@ async def system_page(
 ) -> HTMLResponse:
     status = sys_svc.status(actor=user.user_id, role=user.role, correlation_id=correlation_id)
     return _templates(request).TemplateResponse(
+        request,
         name="system.html",
         context=_base_ctx(
             request,

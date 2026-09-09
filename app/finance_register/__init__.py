@@ -11,6 +11,7 @@ from openpyxl import Workbook, load_workbook
 from app.finance_categorize import CategorizedExpense
 from app.finance_extract import ExpenseRecord
 from app.shared import audit as audit_mod
+from app.shared import kill_switch as kill_switch_mod
 
 
 HEADERS = (
@@ -34,6 +35,7 @@ class FinanceRegister:
         self._audit = audit or audit_mod.log_event
 
     def append(self, expense: ExpenseRecord | CategorizedExpense, *, filed_location: str | None = None) -> dict[str, Any]:
+        kill_switch_mod.assert_allows("finance_register.append")
         record, location = _parts(expense, filed_location)
         if record.status != "extracted":
             raise ValueError("only confirmed extracted expenses may enter the register")
