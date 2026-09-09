@@ -21,6 +21,8 @@ from app.dashboard.dependencies import (
     require_permission,
     require_user,
     system_service,
+    review_service,
+    get_container,
 )
 from app.dashboard.services import (
     ApprovalService,
@@ -28,6 +30,7 @@ from app.dashboard.services import (
     PatientService,
     ReferrerConflictService,
     SystemService,
+    ReviewService,
 )
 
 router = APIRouter(tags=["views"])
@@ -62,6 +65,8 @@ def _base_ctx(
             ("Audit", "/audit"),
             ("Marketing", "/marketing"),
             ("System", "/system"),
+            ("Finance review", "/finance/expenses"),
+            ("Case flags", "/cases"),
         ],
     }
     if extra:
@@ -231,6 +236,47 @@ async def documents_page(
     return _templates(request).TemplateResponse(
         "documents.html",
         _base_ctx(request, user, session, extra={"tasks": tasks}),
+    )
+
+
+@router.get("/finance/documents", response_class=HTMLResponse)
+async def finance_documents_page(
+    request: Request,
+    user: Annotated[User, Depends(require_permission(Permission.DOCUMENT_REVIEW))],
+    session: Annotated[Session | None, Depends(get_session)],
+    svc: Annotated[ReviewService, Depends(review_service)],
+) -> HTMLResponse:
+    return _templates(request).TemplateResponse(
+        "finance_documents.html",
+        _base_ctx(request, user, session, extra={"documents": list(svc.documents.values())}),
+    )
+
+
+@router.get("/finance/expenses", response_class=HTMLResponse)
+async def finance_expenses_page(
+    request: Request,
+    user: Annotated[User, Depends(require_permission(Permission.EXPENSE_REVIEW))],
+    session: Annotated[Session | None, Depends(get_session)],
+    svc: Annotated[ReviewService, Depends(review_service)],
+) -> HTMLResponse:
+    return _templates(request).TemplateResponse(
+        "finance_expenses.html",
+        _base_ctx(request, user, session, extra={"expenses": svc.list_expenses()}),
+    )
+
+
+@router.get("/cases", response_class=HTMLResponse)
+async def cases_page(
+    request: Request,
+    user: Annotated[User, Depends(require_permission(Permission.CASE_VIEW))],
+    session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
+) -> HTMLResponse:
+    tracker = getattr(container, "case_tracking", None)
+    cases = tracker.flagged_cases() if tracker is not None else []
+    return _templates(request).TemplateResponse(
+        "cases.html",
+        _base_ctx(request, user, session, extra={"cases": cases}),
     )
 
 

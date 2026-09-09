@@ -16,6 +16,7 @@ from app.dashboard.services import (
     PatientService,
     ReferrerConflictService,
     SystemService,
+    ReviewService,
 )
 from app.orchestration.correlation import new_correlation_id
 from app.orchestration.pending_actions import PendingActionStore
@@ -169,3 +170,11 @@ def marketing_service(container: Annotated[DashboardContainer, Depends(get_conta
         email_adapter=container.email_adapter,
         audit=container.audit,
     )
+
+
+def review_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> ReviewService:
+    service = getattr(container, "review_service", None)
+    if service is None:
+        service = ReviewService(container=container, audit=container.audit)
+        container.review_service = service
+    return service

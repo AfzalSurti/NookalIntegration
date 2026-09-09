@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Finance documents - Back to Ease{% endblock %}
+{% block content %}
+<h1>Document review</h1>
+<p>Documents requiring patient-match review.</p>
+<table><tr><th>ID</th><th>Filename</th><th>Match</th><th>Type</th></tr>
+{% for document in documents %}<tr><td>{{ document.document_id }}</td><td>{{ document.original_filename }}</td><td>{{ document.patient_match.status }}</td><td>{{ document.document_type }}</td></tr>{% else %}<tr><td colspan="4">No documents pending review.</td></tr>{% endfor %}
+</table>
+{% endblock %}

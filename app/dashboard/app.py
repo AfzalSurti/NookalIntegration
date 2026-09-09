@@ -18,6 +18,8 @@ from app.dashboard.api import (
     patients,
     referrers,
     system,
+    finance,
+    cases,
 )
 from app.dashboard.container import DashboardContainer
 from app.dashboard.views import pages
@@ -70,6 +72,8 @@ def create_app(container: DashboardContainer | None = None) -> FastAPI:
     app.include_router(audit.router)
     app.include_router(marketing.router)
     app.include_router(system.router)
+    app.include_router(finance.router)
+    app.include_router(cases.router)
     app.include_router(pages.router)
 
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))

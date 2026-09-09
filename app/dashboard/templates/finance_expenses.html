@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Expense review - Back to Ease{% endblock %}
+{% block content %}
+<h1>Expense review</h1>
+<p>Expenses requiring human confirmation.</p>
+<table><tr><th>Source document</th><th>Confidence</th><th>Status</th></tr>
+{% for expense in expenses %}<tr><td>{{ expense.document_id }}</td><td>{{ expense.extraction_confidence }}</td><td>{{ expense.status }}</td></tr>{% else %}<tr><td colspan="3">No expenses pending review.</td></tr>{% endfor %}
+</table>
+{% endblock %}
