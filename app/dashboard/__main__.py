@@ -116,7 +116,9 @@ def main() -> None:
 
     container = build_offline_container()
     app = create_app(container)
-    uvicorn.run(app, host="127.0.0.1", port=8080)
+    host = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
+    port = int(os.environ.get("DASHBOARD_PORT", "8080"))
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":

@@ -140,11 +140,14 @@ def appointment_service(container: Annotated[DashboardContainer, Depends(get_con
 
 
 def audit_viewer_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> AuditViewerService:
-    # Prefer AuditLog when the injected audit callable wraps one.
-    log = getattr(container.audit, "log", None)
+    # container.audit may be a bound method (audit.log_event) or an AuditLog directly.
+    audit_fn = container.audit
+    log = getattr(audit_fn, "__self__", None)  # bound method → get AuditLog instance
     if not isinstance(log, AuditLog):
+        log = audit_fn if isinstance(audit_fn, AuditLog) else None
+    if log is None:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="audit_log_unavailable")
-    return AuditViewerService(audit_log=log, audit=container.audit)
+    return AuditViewerService(audit_log=log, audit=audit_fn)
 
 
 def system_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> SystemService:
