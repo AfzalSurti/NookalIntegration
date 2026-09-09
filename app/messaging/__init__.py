@@ -148,7 +148,7 @@ class MessagingService:
         self._sent = sent_log or SentLog(clock=self._clock)
         self._audit = audit or audit_mod.log_event
         self._actor = actor
-        self._adapters = adapters or self._default_adapters()
+        self._adapters = adapters if adapters is not None else self._default_adapters()
 
     def _default_adapters(self) -> dict[Channel, ChannelAdapter]:
         adapters: dict[Channel, ChannelAdapter] = {

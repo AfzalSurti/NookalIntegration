@@ -36,6 +36,7 @@ from app.marketing.suppression import SuppressionReason, SuppressionRecord, Supp
 
 from app.marketing.service import CampaignService
 from app.marketing.fake_email_adapter import FakeEmailAdapter
+from app.marketing.unavailable_email_adapter import UnavailableEmailAdapter
 
 __all__ = [
     "MarketingList",
@@ -62,4 +63,5 @@ __all__ = [
     "SuppressionStore",
     "CampaignService",
     "FakeEmailAdapter",
+    "UnavailableEmailAdapter",
 ]

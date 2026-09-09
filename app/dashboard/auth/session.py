@@ -92,6 +92,106 @@ class MemoryAuthBackend:
         return stored.user if stored else None
 
 
+class ProductionAuthBackend:
+    """
+    Production authentication backend.
+
+    Loads verified production users only.
+    Strictly forbids DASHBOARD_DEV_USER, DASHBOARD_DEV_PASSWORD, and AUTOMATION_ALLOW_DEV_LOGIN.
+    Passwords are stored/verified using PBKDF2 HMAC SHA-256 (120,000 iterations).
+    """
+
+    def __init__(
+        self,
+        users: list[tuple[User, str]] | None = None,
+        pre_hashed: list[_StoredUser] | None = None,
+    ) -> None:
+        self._users: dict[str, _StoredUser] = {}
+        self._by_username: dict[str, str] = {}
+        for user, password in users or []:
+            self.add_user(user, password)
+        for stored in pre_hashed or []:
+            self._users[stored.user.user_id] = stored
+            self._by_username[stored.user.username.casefold()] = stored.user.user_id
+
+    def add_user(self, user: User, password: str) -> None:
+        stored = _StoredUser(user=user, password_hash=hash_password(password))
+        self._users[user.user_id] = stored
+        self._by_username[user.username.casefold()] = user.user_id
+
+    def authenticate(self, username: str, password: str) -> User | None:
+        uid = self._by_username.get(username.casefold())
+        if uid is None:
+            verify_password(password, hash_password("dummy"))
+            return None
+        stored = self._users[uid]
+        if not verify_password(password, stored.password_hash):
+            return None
+        return stored.user
+
+    def get_user(self, user_id: str) -> User | None:
+        stored = self._users.get(user_id)
+        return stored.user if stored else None
+
+    @classmethod
+    def from_env(cls) -> ProductionAuthBackend:
+        import json
+        import os
+        from pathlib import Path
+        from app.shared.exceptions import ConfigError
+
+        # Explicitly check and reject dev login flag in production
+        if os.environ.get("AUTOMATION_ALLOW_DEV_LOGIN") == "1":
+            raise ConfigError("AUTOMATION_ALLOW_DEV_LOGIN is not permitted in production.")
+
+        users: list[tuple[User, str]] = []
+        pre_hashed: list[_StoredUser] = []
+
+        # 1. Check for users file
+        users_file_path = os.environ.get("DASHBOARD_USERS_FILE")
+        if users_file_path:
+            p = Path(users_file_path)
+            if not p.exists():
+                raise ConfigError(f"DASHBOARD_USERS_FILE specified but not found: {users_file_path}")
+            try:
+                raw_users = json.loads(p.read_text(encoding="utf-8"))
+                for item in raw_users:
+                    u = User(
+                        user_id=item["user_id"],
+                        username=item["username"],
+                        role=item.get("role", "admin"),
+                        display_name=item.get("display_name", item["username"]),
+                    )
+                    if "password_hash" in item:
+                        pre_hashed.append(_StoredUser(user=u, password_hash=item["password_hash"]))
+                    elif "password" in item:
+                        users.append((u, item["password"]))
+            except Exception as exc:
+                raise ConfigError(f"Failed to parse DASHBOARD_USERS_FILE: {exc}") from exc
+
+        # 2. Check for environment-configured production admin
+        prod_user = os.environ.get("DASHBOARD_PROD_USER") or os.environ.get("DASHBOARD_ADMIN_USER")
+        prod_pass = os.environ.get("DASHBOARD_PROD_PASSWORD") or os.environ.get("DASHBOARD_ADMIN_PASSWORD")
+        prod_hash = os.environ.get("DASHBOARD_ADMIN_PASSWORD_HASH")
+
+        if prod_user and prod_hash:
+            u = User(user_id=f"prod_{prod_user}", username=prod_user, role="admin", display_name=prod_user)
+            pre_hashed.append(_StoredUser(user=u, password_hash=prod_hash))
+        elif prod_user and prod_pass:
+            u = User(user_id=f"prod_{prod_user}", username=prod_user, role="admin", display_name=prod_user)
+            users.append((u, prod_pass))
+
+        if not users and not pre_hashed:
+            raise ConfigError(
+                "No production dashboard users configured. "
+                "Set DASHBOARD_PROD_USER and DASHBOARD_PROD_PASSWORD, "
+                "or DASHBOARD_ADMIN_PASSWORD_HASH, or DASHBOARD_USERS_FILE. "
+                "Development credentials (DASHBOARD_DEV_*) are forbidden in production."
+            )
+
+        return cls(users=users, pre_hashed=pre_hashed)
+
+
 class SessionStore:
     """Server-side opaque sessions. Cookie holds only the session id."""
 

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Service Label -->
+    <key>Label</key>
+    <string>com.backtoease.nookalintegration</string>
+
+    <!-- Run under user account (automation), not root -->
+    <key>UserName</key>
+    <string>automation</string>
+
+    <!-- Executable: production runner in virtualenv -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/automation/NookalIntegration/.venv/bin/python</string>
+        <string>-m</string>
+        <string>app.dashboard.production_main</string>
+    </array>
+
+    <!-- Working Directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/automation/NookalIntegration</string>
+
+    <!-- Environment Variables (Secrets live in config/.env, NOT in this plist) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>BTE_ENV</key>
+        <string>production</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/automation/NookalIntegration</string>
+        <key>DASHBOARD_HOST</key>
+        <string>127.0.0.1</string>
+        <key>DASHBOARD_PORT</key>
+        <string>8080</string>
+        <key>AUTOMATION_HOME</key>
+        <string>/Users/automation/NookalIntegration</string>
+    </dict>
+
+    <!-- Startup & Lifecycle -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <!-- Process Limits -->
+    <key>ProcessType</key>
+    <string>Standard</string>
+
+    <!-- Logging to controlled app logs -->
+    <key>StandardOutPath</key>
+    <string>/Users/automation/NookalIntegration/logs/app/dashboard.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/automation/NookalIntegration/logs/app/dashboard.stderr.log</string>
+</dict>
+</plist>

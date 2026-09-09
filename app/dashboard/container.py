@@ -47,7 +47,7 @@ class DashboardContainer:
     campaign_recipient_store: CampaignRecipientStore = field(default_factory=CampaignRecipientStore)
     consent_store: ConsentStore = field(default_factory=ConsentStore)
     suppression_store: SuppressionStore = field(default_factory=SuppressionStore)
-    email_adapter: FakeEmailAdapter = field(default_factory=FakeEmailAdapter)
+    email_adapter: Any = field(default_factory=FakeEmailAdapter)
     pending_actions: PendingActionStore | None = None
     kill_switch_path: Path | None = None
     environment: str = "development"  # development | test | production

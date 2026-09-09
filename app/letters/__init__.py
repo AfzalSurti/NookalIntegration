@@ -6,11 +6,19 @@ only via ApprovalQueue handlers after human approval.
 """
 from __future__ import annotations
 
-from app.letters.delivery import DocumentDelivery, InMemoryDocumentDelivery
+from app.letters.delivery import (
+    DocumentDelivery,
+    FileSystemDocumentDelivery,
+    InMemoryDocumentDelivery,
+)
 from app.letters.handlers import DocumentApprovalHandler, register_document_handlers
 from app.letters.models import DocumentRecord, DocumentStatus, DocumentType
 from app.letters.renderer import DocumentRenderer, SimplePdfRenderer
-from app.letters.store import DocumentStore, InMemoryDocumentStore
+from app.letters.store import (
+    DocumentStore,
+    FileSystemDocumentStore,
+    InMemoryDocumentStore,
+)
 from app.letters.templates import TemplateSpec, TemplateStore, load_template
 from app.letters.validators import DocumentValidationError, validate_for_render
 
@@ -23,6 +31,8 @@ __all__ = [
     "DocumentStore",
     "DocumentType",
     "DocumentValidationError",
+    "FileSystemDocumentDelivery",
+    "FileSystemDocumentStore",
     "InMemoryDocumentDelivery",
     "InMemoryDocumentStore",
     "SimplePdfRenderer",
