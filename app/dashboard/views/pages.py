@@ -268,7 +268,7 @@ async def patients_page(
 
     known_suburbs: list[str] = []
     try:
-        all_patients = container.nookal.get_patients(page=1, page_length=500)
+        all_patients = container.nookal.get_patients(page=1, page_length=200)
         raw_suburbs = {p.suburb for p in all_patients if p.suburb and p.suburb.strip()}
         known_suburbs = sorted(raw_suburbs, key=str.lower)
     except Exception:
@@ -352,6 +352,62 @@ async def patient_file_url(
         raise HTTPException(status_code=404, detail="File URL could not be retrieved") from exc
 
 
+@router.get("/patients/{patient_id}/files/{file_id}/view", response_class=HTMLResponse)
+async def patient_file_view_page(
+    request: Request,
+    patient_id: str,
+    file_id: str,
+    user: Annotated[User, Depends(require_permission(Permission.PATIENT_VIEW))],
+    session: Annotated[Session | None, Depends(get_session)],
+    svc: Annotated[PatientFileService, Depends(patient_file_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
+) -> HTMLResponse:
+    try:
+        url = svc.get_file_url(
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+            patient_id=patient_id,
+            file_id=file_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="File URL could not be retrieved") from exc
+
+    file_name = None
+    file_type = None
+    try:
+        files = svc.list_files(
+            patient_id=patient_id,
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+        )
+        for f in files:
+            if str(f.file_id).strip() == str(file_id).strip():
+                file_name = f.name
+                file_type = f.file_type
+                break
+    except Exception:
+        logger.exception("Failed to retrieve file metadata for file_id=%s patient_id=%s", file_id, patient_id)
+
+    return _templates(request).TemplateResponse(
+        request,
+        name="patient_file_view.html",
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            extra={
+                "file_url": url,
+                "file_id": file_id,
+                "patient_id": patient_id,
+                "file_name": file_name or f"File #{file_id}",
+                "file_type": file_type or "file",
+            },
+        ),
+    )
+
+
 @router.get("/patients/{patient_id}/treatment-notes/{note_id}", response_class=HTMLResponse)
 async def treatment_note_detail_page(
     request: Request,
@@ -418,9 +474,58 @@ async def invoice_detail_page(
         context=_base_ctx(request, user, session, extra={
             "invoice": invoice,
             "entries": entries,
-            "patient_id": patient_id,
+            "patient_id": patient_id or invoice.patient_id or "0",
         }),
     )
+
+
+@router.get("/finance/invoices/{invoice_id}", response_class=HTMLResponse)
+@router.get("/invoices/{invoice_id}", response_class=HTMLResponse)
+async def finance_invoice_detail_page(
+    request: Request,
+    invoice_id: str,
+    user: Annotated[User, Depends(require_permission(Permission.DOCUMENT_REVIEW))],
+    session: Annotated[Session | None, Depends(get_session)],
+    svc: Annotated[InvoiceService, Depends(invoice_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
+) -> HTMLResponse:
+    try:
+        invoice = svc.get_invoice(
+            invoice_id,
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Invoice not found") from exc
+
+    entries = []
+    try:
+        entries = svc.get_invoice_entries(
+            invoice_id,
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+        )
+    except Exception:
+        pass
+
+    return _templates(request).TemplateResponse(
+        request,
+        name="invoice_detail.html",
+        context=_base_ctx(request, user, session, extra={
+            "invoice": invoice,
+            "entries": entries,
+            "patient_id": invoice.patient_id or "0",
+        }),
+    )
+
+
+@router.get("/invoices")
+async def invoices_redirect(request: Request) -> RedirectResponse:
+    qs = request.url.query
+    dest = f"/finance/invoices?{qs}" if qs else "/finance/invoices"
+    return RedirectResponse(url=dest, status_code=307)
 
 
 @router.get("/appointments", response_class=HTMLResponse)

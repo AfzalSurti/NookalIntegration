@@ -65,6 +65,7 @@
         <th>Status</th>
         <th>Void</th>
         <th>Entries</th>
+        <th style="text-align: right;">Action</th>
       </tr>
     </thead>
     <tbody>
@@ -79,6 +80,8 @@
             <span class="badge badge-success">Paid</span>
           {% elif inv.status == "Unpaid" or inv.status == "unpaid" %}
             <span class="badge badge-warning">Unpaid</span>
+          {% elif inv.status == "Partial" or inv.status == "partial" or inv.status == "Partially Paid" %}
+            <span class="badge badge-info">{{ inv.status }}</span>
           {% else %}
             <span class="badge badge-neutral">{{ inv.status or "—" }}</span>
           {% endif %}
@@ -91,10 +94,13 @@
           {% endif %}
         </td>
         <td>{{ inv.entries|length }} items</td>
+        <td style="text-align: right;">
+          <a href="/patients/{{ inv.patient_id or '0' }}/invoices/{{ inv.invoice_id }}" class="btn btn-secondary btn-sm">View</a>
+        </td>
       </tr>
     {% else %}
       <tr>
-        <td colspan="7">
+        <td colspan="8">
           <div class="empty-state">
             <div class="empty-state-title">No Nookal invoices found</div>
             <div class="empty-state-text">No invoices matching the search criteria.</div>

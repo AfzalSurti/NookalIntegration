@@ -17,7 +17,7 @@ from app.dashboard.schemas import (
     TreatmentNoteOut,
 )
 from app.letters import DocumentStore
-from app.nookal_client import NookalClient, PatientRef
+from app.nookal_client import Invoice, NookalClient, PatientRef
 from app.shared.clock import Clock, SystemClock
 from app.shared.exceptions import NookalNotFound
 
@@ -226,7 +226,25 @@ class PatientService:
         invoices_error: str | None = None
         if hasattr(self._nookal, "get_invoices"):
             try:
-                invoices = self._nookal.get_invoices(patient_id=patient_id)
+                invoices = self._nookal.get_invoices(patient_id=patient_id, expanded=1)
+                for idx, inv in enumerate(invoices):
+                    if inv.total is None or inv.total == 0.0 or not inv.date or not inv.status or inv.status == "—":
+                        try:
+                            full_inv = self._nookal.get_invoice(inv.invoice_id)
+                            if full_inv:
+                                invoices[idx] = Invoice(
+                                    invoice_id=inv.invoice_id,
+                                    patient_id=inv.patient_id or full_inv.patient_id,
+                                    date=full_inv.date or inv.date,
+                                    total=full_inv.total if (full_inv.total is not None and full_inv.total > 0) else inv.total,
+                                    status=full_inv.status if (full_inv.status and full_inv.status != "—") else inv.status,
+                                    void=full_inv.void if full_inv.void is not None else inv.void,
+                                    expanded=full_inv.expanded or inv.expanded,
+                                    entries=full_inv.entries or inv.entries,
+                                    raw={**inv.raw, **full_inv.raw},
+                                )
+                        except Exception:
+                            pass
                 invoices_out = [
                     PatientInvoiceOut(
                         invoice_id=inv.invoice_id,

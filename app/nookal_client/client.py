@@ -374,6 +374,7 @@ class InvoiceEntry:
     price: float | None = None
     quantity: float | None = None
     tax: float | None = None
+    total: float | None = None
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
 
@@ -3068,6 +3069,8 @@ class HttpNookalClient(NookalClient):
             or data.get("invoiceID")
             or data.get("InvoiceID")
             or data.get("invoiceId")
+            or data.get("invoiceNumber")
+            or data.get("InvoiceNumber")
         )
         pid = (
             data.get("patientID")
@@ -3077,19 +3080,32 @@ class HttpNookalClient(NookalClient):
             or data.get("patientId")
             or fallback_patient_id
         )
-        total = (
-            data.get("total")
+        account_data = data.get("account") if isinstance(data.get("account"), Mapping) else {}
+
+        # In Nookal API, totalDebits is the primary invoice amount (debits charged to patient account)
+        raw_total = (
+            data.get("totalDebits")
+            or data.get("TotalDebits")
+            or data.get("total_debits")
+            or data.get("total")
             or data.get("amount")
+            or data.get("totalAmount")
+            or data.get("total_amount")
             or data.get("invoice_total")
             or data.get("invoiceTotal")
             or data.get("Total")
+            or account_data.get("debits")
+            or account_data.get("totalDebits")
+            or data.get("totalPayments")
+            or data.get("totalBalance")
         )
-        void_val = data.get("void") or data.get("isVoid") or data.get("is_void")
+        void_val = data.get("void") or data.get("isVoid") or data.get("is_void") or data.get("Void")
 
         entries_raw = (
             data.get("entries")
             or data.get("items")
             or data.get("invoice_entries")
+            or (data.get("details", {}).get("entries") if isinstance(data.get("details"), Mapping) else None)
             or []
         )
         if isinstance(entries_raw, Mapping):
@@ -3105,28 +3121,88 @@ class HttpNookalClient(NookalClient):
                     )
 
         parsed_total: float | None = None
-        if total is not None:
+        if raw_total is not None:
             try:
-                if isinstance(total, (int, float)):
-                    parsed_total = float(total)
+                if isinstance(raw_total, (int, float)):
+                    parsed_total = float(raw_total)
                 else:
-                    cleaned = str(total).replace("$", "").replace(",", "").strip()
+                    cleaned = str(raw_total).replace("$", "").replace(",", "").strip()
                     parsed_total = float(cleaned) if cleaned else None
             except (ValueError, TypeError):
                 parsed_total = None
 
+        if (parsed_total is None or parsed_total == 0.0) and entries:
+            entry_sum = sum(
+                (e.total if e.total is not None else ((e.price or 0.0) * (e.quantity or 1.0)))
+                for e in entries
+            )
+            if entry_sum > 0:
+                parsed_total = float(entry_sum)
+
+        raw_date = (
+            data.get("date")
+            or data.get("dateCreated")
+            or data.get("DateCreated")
+            or data.get("date_created")
+            or data.get("invoiceDate")
+            or data.get("invoice_date")
+            or data.get("Date")
+            or data.get("created")
+            or data.get("created_date")
+            or data.get("timestamp")
+        )
+        parsed_date: str | None = None
+        if raw_date is not None:
+            date_str = str(raw_date).strip()
+            if len(date_str) >= 10 and date_str[4] == "-" and date_str[7] == "-":
+                parsed_date = date_str[:10]
+            else:
+                parsed_date = date_str
+
+        def _to_float(v: Any) -> float | None:
+            if v is None:
+                return None
+            try:
+                return float(str(v).replace("$", "").replace(",", "").strip())
+            except Exception:
+                return None
+
+        bal_val = _to_float(data.get("totalBalance") or account_data.get("balance") or data.get("balance"))
+        deb_val = _to_float(data.get("totalDebits") or account_data.get("debits") or parsed_total)
+        pay_val = _to_float(data.get("totalPayments") or account_data.get("payments"))
+
+        is_void = bool(void_val in (1, "1", True, "true", "True"))
+
+        raw_status = (
+            data.get("status")
+            or data.get("Status")
+            or data.get("invoiceStatus")
+            or data.get("paymentStatus")
+            or data.get("payment_status")
+            or account_data.get("status")
+        )
+
+        if not raw_status:
+            if is_void:
+                raw_status = "Void"
+            elif bal_val is not None and bal_val <= 0 and ((deb_val is not None and deb_val > 0) or (pay_val is not None and pay_val > 0)):
+                raw_status = "Paid"
+            elif pay_val is not None and pay_val > 0 and (bal_val is not None and bal_val > 0):
+                raw_status = "Partially Paid"
+            elif bal_val is not None and bal_val > 0:
+                raw_status = "Unpaid"
+            elif parsed_total is not None and parsed_total > 0:
+                raw_status = "Paid"
+            else:
+                raw_status = "Valid"
+
         return Invoice(
             invoice_id=str(iid or ""),
             patient_id=str(pid or ""),
-            date=(
-                data.get("date")
-                or data.get("invoiceDate")
-                or data.get("invoice_date")
-                or data.get("Date")
-            ),
+            date=parsed_date,
             total=parsed_total,
-            status=data.get("status") or data.get("Status"),
-            void=bool(void_val in (1, "1", True, "true", "True")),
+            status=raw_status,
+            void=is_void,
             expanded=bool(entries),
             entries=entries,
             raw=dict(data),
@@ -3148,6 +3224,7 @@ class HttpNookalClient(NookalClient):
         price = data.get("price") or data.get("amount") or data.get("Price")
         qty = data.get("quantity") or data.get("qty") or data.get("Quantity")
         tax = data.get("tax") or data.get("Tax")
+        total_val = data.get("total") or data.get("Total") or data.get("subtotal") or data.get("subTotal") or data.get("amount")
 
         def _clean_num(val: Any) -> float | None:
             if val is None:
@@ -3176,6 +3253,7 @@ class HttpNookalClient(NookalClient):
             price=_clean_num(price),
             quantity=_clean_num(qty),
             tax=_clean_num(tax),
+            total=_clean_num(total_val),
             raw=dict(data),
         )
 

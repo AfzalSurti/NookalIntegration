@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ file_name or "Patient File" }} — Back to Ease{% endblock %}
+{% block topbar_title %}Patient File Viewer{% endblock %}
+{% block content %}
+<div class="page-header" style="margin-bottom: var(--sp-4);">
+  <div class="flex gap-3" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+    <div class="flex gap-3" style="align-items: center;">
+      <a href="/patients/{{ patient_id }}" class="btn btn-secondary btn-sm">← Back to Patient</a>
+      <h1 class="page-title" style="margin-bottom: 0; font-size: 1.25rem;">{{ file_name or "Patient Document" }}</h1>
+      <span class="badge badge-neutral">ID: {{ file_id }}</span>
+      {% if file_type %}
+        <span class="badge badge-info">{{ file_type|upper }}</span>
+      {% endif %}
+    </div>
+    <div class="flex gap-2">
+      <a href="{{ file_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">↗ Open in New Tab</a>
+      <a href="/patients/{{ patient_id }}/files/{{ file_id }}/url?download=1" download="{{ file_name or 'file' }}" class="btn btn-primary btn-sm">⬇ Download File</a>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="padding: var(--sp-2); overflow: hidden; background: #fff;">
+  {% set ft = (file_type or '').lower() %}
+  {% if ft in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'] %}
+    <div style="text-align: center; padding: var(--sp-6); background: #fafbfc; min-height: 400px; display: flex; align-items: center; justify-content: center;">
+      <img src="{{ file_url }}" alt="{{ file_name }}" style="max-width: 100%; max-height: calc(100vh - 200px); object-fit: contain; box-shadow: var(--shadow-md); border-radius: var(--radius-sm);">
+    </div>
+  {% else %}
+    <div style="width: 100%; height: calc(100vh - 190px); min-height: 600px; position: relative;">
+      <iframe src="{{ file_url }}" style="width: 100%; height: 100%; border: none; border-radius: var(--radius-sm);" title="{{ file_name }}">
+        <p>Your browser does not support embedded frames. <a href="{{ file_url }}" target="_blank">Click here to view the file</a>.</p>
+      </iframe>
+    </div>
+  {% endif %}
+</div>
+
+<div class="info-banner" style="margin-top: var(--sp-4); font-size: 0.85rem;">
+  If the embedded preview does not render automatically, your browser or security settings may block third-party frames. You can
+  <a href="{{ file_url }}" target="_blank" rel="noopener noreferrer" style="font-weight: 600; text-decoration: underline;">Open Directly</a> or
+  <a href="/patients/{{ patient_id }}/files/{{ file_id }}/url?download=1" download="{{ file_name or 'file' }}" style="font-weight: 600; text-decoration: underline;">Download to your device</a>.
+</div>
+{% endblock %}

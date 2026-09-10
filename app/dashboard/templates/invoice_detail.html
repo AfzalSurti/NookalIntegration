@@ -4,7 +4,11 @@
 {% block content %}
 <div class="page-header">
   <div class="flex gap-3" style="align-items: center;">
-    <a href="/patients/{{ patient_id }}" class="btn btn-secondary btn-sm">← Back to Patient</a>
+    {% if patient_id and patient_id != "0" %}
+      <a href="/patients/{{ patient_id }}" class="btn btn-secondary btn-sm">← Back to Patient</a>
+    {% else %}
+      <a href="/finance/invoices" class="btn btn-secondary btn-sm">← Back to Invoices</a>
+    {% endif %}
     <h1 class="page-title">Invoice #{{ invoice.invoice_id }}</h1>
     {% if invoice.void %}
       <span class="badge badge-error">Voided</span>
@@ -12,6 +16,8 @@
       <span class="badge badge-success">Paid</span>
     {% elif invoice.status == "Unpaid" or invoice.status == "unpaid" %}
       <span class="badge badge-warning">Unpaid</span>
+    {% elif invoice.status == "Partial" or invoice.status == "partial" or invoice.status == "Partially Paid" %}
+      <span class="badge badge-info">{{ invoice.status }}</span>
     {% else %}
       <span class="badge badge-neutral">{{ invoice.status or "—" }}</span>
     {% endif %}

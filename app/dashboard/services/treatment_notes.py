@@ -40,10 +40,10 @@ class TreatmentNoteService:
         try:
             notes = self._nookal.get_treatment_notes(
                 patient_id,
-                page=page,
-                page_length=page_length,
+                page=max(1, page),
+                page_length=min(max(1, page_length), 100),
             )
-        except NookalNotFound:
+        except (NookalNotFound, NookalValidationError):
             notes = []
 
         self._audit(
@@ -75,20 +75,33 @@ class TreatmentNoteService:
         Since Nookal doesn't have a single-note endpoint, we fetch all notes
         for the patient and filter by note_id.
         """
-        try:
-            notes = self._nookal.get_treatment_notes(
-                patient_id,
-                page=1,
-                page_length=500,
-            )
-        except NookalNotFound:
-            notes = []
-
-        found = None
-        for note in notes:
-            if note.note_id == note_id:
-                found = note
+        found: TreatmentNote | None = None
+        target_note_id = str(note_id).strip()
+        page = 1
+        while True:
+            try:
+                notes = self._nookal.get_treatment_notes(
+                    patient_id,
+                    page=page,
+                    page_length=100,
+                )
+            except (NookalNotFound, NookalValidationError):
                 break
+            except Exception as e:
+                logger.error("Failed to fetch treatment notes for patient %s: %s", patient_id, e)
+                break
+
+            if not notes:
+                break
+
+            for note in notes:
+                if str(note.note_id).strip() == target_note_id:
+                    found = note
+                    break
+
+            if found is not None or len(notes) < 100 or page >= 10:
+                break
+            page += 1
 
         if found is None:
             self._audit(

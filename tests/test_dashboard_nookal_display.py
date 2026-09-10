@@ -259,3 +259,126 @@ def test_authorization_enforced_on_nookal_views(client: TestClient) -> None:
     assert client.get("/finance/invoices").status_code == 401
     assert client.get("/documents").status_code == 401
     assert client.get("/patients/pat_1001").status_code == 401
+    assert client.get("/patients/pat_1001/treatment-notes/79").status_code == 401
+    assert client.get("/patients/pat_1001/invoices/inv_i300").status_code == 401
+
+
+def test_treatment_note_detail_view(client: TestClient, env) -> None:
+    from app.nookal_client import TreatmentNote
+
+    env.nookal.treatment_notes.append(
+        TreatmentNote(
+            note_id="79",
+            patient_id="pat_1001",
+            notes="Patient reports improved mobility and reduced pain.",
+            date="2026-08-15 10:30:00",
+        )
+    )
+
+    resp = env.authed(client, "GET", "/patients/pat_1001/treatment-notes/79", role="practitioner")
+    assert resp.status_code == 200
+    assert "ID: 79" in resp.text
+    assert "Patient reports improved mobility and reduced pain." in resp.text
+    assert "Print / Save as PDF" in resp.text
+
+
+def test_treatment_note_detail_not_found(client: TestClient, env) -> None:
+    resp = env.authed(client, "GET", "/patients/pat_1001/treatment-notes/nonexistent_999", role="practitioner")
+    assert resp.status_code == 404
+
+
+def test_treatment_note_service_respects_page_length_limit() -> None:
+    from unittest.mock import MagicMock
+    from app.dashboard.services.treatment_notes import TreatmentNoteService
+    from app.nookal_client import TreatmentNote
+
+    mock_nookal = MagicMock()
+    mock_nookal.get_treatment_notes.return_value = [
+        TreatmentNote(note_id="79", patient_id="100", notes="Lumbar spine assessment.")
+    ]
+    svc = TreatmentNoteService(nookal=mock_nookal, audit=MagicMock())
+
+    note = svc.get_note("100", "79", actor="u1", role="practitioner", correlation_id="c1")
+    assert note is not None
+    assert note.note_id == "79"
+
+    # Verify that get_treatment_notes was called with page_length <= 100
+    assert mock_nookal.get_treatment_notes.called
+    call_kwargs = mock_nookal.get_treatment_notes.call_args[1]
+    assert call_kwargs["page_length"] <= 100
+
+
+def test_patient_file_embedded_view_page_and_buttons(client: TestClient, env) -> None:
+    env.nookal.files["file_f200"] = PatientFile(
+        file_id="file_f200",
+        patient_id="pat_1001",
+        name="shoulder_mri_scan.pdf",
+        file_type="pdf",
+        date_added="2026-08-05",
+        size=40960,
+    )
+
+    # 1. Verify patient detail page has separate View and Download buttons
+    resp = env.authed(client, "GET", "/patients/pat_1001", role="practitioner")
+    assert resp.status_code == 200
+    assert "/patients/pat_1001/files/file_f200/view" in resp.text
+    assert "/patients/pat_1001/files/file_f200/url?download=1" in resp.text
+
+    # 2. Verify documents page has separate View and Download buttons
+    resp_docs = env.authed(client, "GET", "/documents?patient_id=pat_1001", role="practitioner")
+    assert resp_docs.status_code == 200
+    assert "/patients/pat_1001/files/file_f200/view" in resp_docs.text
+    assert "/patients/pat_1001/files/file_f200/url?download=1" in resp_docs.text
+
+    # 3. Verify embedded view page loads with iframe and download option
+    resp_view = env.authed(client, "GET", "/patients/pat_1001/files/file_f200/view", role="practitioner")
+    assert resp_view.status_code == 200
+    assert "<iframe" in resp_view.text
+    assert "shoulder_mri_scan.pdf" in resp_view.text
+    assert "Download File" in resp_view.text
+
+
+def test_finance_invoices_view_button_and_direct_routes(client: TestClient, env) -> None:
+    env.nookal.invoices["inv_i300"] = Invoice(
+        invoice_id="inv_i300",
+        patient_id="pat_1001",
+        date="2026-08-10",
+        total=175.50,
+        status="Paid",
+        void=False,
+    )
+
+    # 1. Verify /finance/invoices has View button
+    resp = env.authed(client, "GET", "/finance/invoices", role="practitioner")
+    assert resp.status_code == 200
+    assert "/patients/pat_1001/invoices/inv_i300" in resp.text
+    assert ">View<" in resp.text
+
+    # 2. Verify direct access via /finance/invoices/{id} and /invoices/{id}
+    resp_direct = env.authed(client, "GET", "/finance/invoices/inv_i300", role="practitioner")
+    assert resp_direct.status_code == 200
+    assert "Invoice #inv_i300" in resp_direct.text
+
+    # 3. Verify /invoices redirects to /finance/invoices
+    csrf = env.login(client, "practitioner")
+    resp_redir = client.get("/invoices", headers={"X-CSRF-Token": csrf}, follow_redirects=False)
+    assert resp_redir.status_code in (307, 301, 302)
+    assert "/finance/invoices" in resp_redir.headers.get("location", "")
+
+
+def test_nookal_invoice_parsing_with_datecreated_and_totaldebits() -> None:
+    raw_payload = {
+        "ID": "388",
+        "patientID": "100",
+        "dateCreated": "2026-08-10 14:00:00",
+        "totalDebits": "175.50",
+        "totalBalance": "0.00",
+        "totalPayments": "175.50",
+    }
+    inv = HttpNookalClient._parse_invoice(raw_payload)
+    assert inv.invoice_id == "388"
+    assert inv.patient_id == "100"
+    assert inv.date == "2026-08-10"
+    assert inv.total == 175.50
+    assert inv.status == "Paid"
+    assert inv.void is False
