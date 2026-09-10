@@ -12,8 +12,10 @@ from app.dashboard.services import (
     ApprovalService,
     AppointmentService,
     AuditViewerService,
+    CaseService,
     InvoiceService,
     MarketingService,
+    PatientFileService,
     PatientService,
     ReferrerConflictService,
     SystemService,
@@ -192,3 +194,35 @@ def review_service(container: Annotated[DashboardContainer, Depends(get_containe
         service = ReviewService(container=container, audit=container.audit)
         container.review_service = service
     return service
+
+
+def case_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> CaseService:
+    return CaseService(
+        nookal=container.nookal,
+        audit=container.audit,
+        clock=container.clock,
+    )
+
+
+def patient_file_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> PatientFileService:
+    return PatientFileService(
+        nookal=container.nookal,
+        audit=container.audit,
+        clock=container.clock,
+    )
+
+
+def referral_sync_service(container: Annotated[DashboardContainer, Depends(get_container)]):
+    from app.orchestration.referral_sync_service import ReferralAssociationStore, ReferralSyncService
+    store = getattr(container, "referral_association_store", None)
+    if store is None:
+        store = ReferralAssociationStore()
+        container.referral_association_store = store
+    return ReferralSyncService(
+        nookal=container.nookal,
+        association_store=store,
+        conflict_store=container.conflict_store,
+        audit=container.audit,
+        clock=container.clock,
+    )
+

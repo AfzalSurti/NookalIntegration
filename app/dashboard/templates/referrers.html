@@ -76,9 +76,87 @@
   </div>
 </div>
 
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header flex" style="justify-content: space-between; align-items: center;">
+    <div class="card-title">Nookal Referral Report Synchronization</div>
+    {% if can_resolve %}
+    <span class="badge badge-info">Supported Import: CSV / Delimited Export</span>
+    {% endif %}
+  </div>
+  <div style="padding: var(--sp-4);">
+    <p style="color: var(--text-secondary); margin-bottom: var(--sp-4); font-size: 0.95rem;">
+      Upload patient-level referral or client export CSV files from Nookal (e.g. from <code>Manage > Data > Export > Client Data</code> or patient referral reports).
+      The system deterministically matches patient IDs and referring doctors, routing ambiguous matches to the review queue below.
+    </p>
+    {% if can_resolve %}
+    <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+      <input type="file" id="report-file-input" accept=".csv,.txt" style="display: none;" onchange="handleReportUpload(event)">
+      <button type="button" class="btn btn-primary" onclick="document.getElementById('report-file-input').click()">
+        Upload & Ingest Nookal Report
+      </button>
+      <span id="upload-status" style="font-size: 0.9rem; color: var(--text-secondary);"></span>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header flex" style="justify-content: space-between; align-items: center;">
+    <div class="card-title">Synchronized Patient Referrals ({{ associations|length if associations else 0 }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Patient ID</th>
+          <th>Patient Name</th>
+          <th>Referring Doctor</th>
+          <th>Referrer ID / Code</th>
+          <th>Provider #</th>
+          <th>Status</th>
+          <th>Source</th>
+          <th>Last Synced</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for a in associations %}
+        <tr>
+          <td><a href="/patients/{{ a.patient_id }}"><code>{{ a.patient_id }}</code></a></td>
+          <td><strong>{{ a.patient_name or "—" }}</strong></td>
+          <td>{{ a.referrer_name }}</td>
+          <td><code>{{ a.referrer_id or "—" }}</code></td>
+          <td><code>{{ a.provider_number or "—" }}</code></td>
+          <td>
+            {% if a.status == "synced" %}
+              <span class="badge badge-success">Synced</span>
+            {% elif a.status == "conflict" %}
+              <span class="badge badge-warning">Conflict</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ a.status|capitalize }}</span>
+            {% endif %}
+          </td>
+          <td><span style="font-size: 0.85rem; color: var(--text-secondary);">{{ a.source }}</span></td>
+          <td><span style="font-size: 0.85rem; color: var(--text-muted);">{{ a.last_updated[:19] if a.last_updated else "—" }}</span></td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="8">
+            <div class="empty-state">
+              <div class="empty-state-title">No patient referral records synced yet</div>
+              <div class="empty-state-text">Upload a Nookal referral export above to automatically match and synchronize referring doctors.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <div class="info-banner">
   Integration Note: Official Nookal API v2 handles patient referral linkage via referrer codes. Unmatched medical providers are queued here for manual verification before associating medical records.
 </div>
+
 
 <!-- Modal: Resolve Conflict -->
 <div class="modal-backdrop" id="resolve-modal">
@@ -166,5 +244,38 @@ function submitResolve(e) {
       errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to resolve conflict.';
     });
 }
+
+function handleReportUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('upload-status');
+  statusEl.textContent = 'Uploading and processing report...';
+  statusEl.style.color = 'var(--text-secondary)';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  fetch('/api/referrers/upload-report', {
+    method: 'POST',
+    headers: {
+      'X-CSRF-Token': window.__CSRF__
+    },
+    body: formData
+  })
+  .then(r => {
+    if (!r.ok) return r.json().then(d => Promise.reject(d));
+    return r.json();
+  })
+  .then(res => {
+    statusEl.style.color = 'var(--success)';
+    statusEl.textContent = `Sync Complete: ${res.total_rows} rows processed (${res.matched_exact} matched, ${res.conflicts_queued} conflicts, ${res.new_pending_queued} new pending). Reloading...`;
+    setTimeout(() => location.reload(), 1200);
+  })
+  .catch(err => {
+    statusEl.style.color = 'var(--error)';
+    statusEl.textContent = 'Upload failed: ' + ((err && (err.detail || err.error || err.message)) || 'Invalid report format');
+  });
+}
 </script>
 {% endblock %}
+

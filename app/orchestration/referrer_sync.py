@@ -281,3 +281,98 @@ class ReferrerSyncWorkflow(BaseWorkflow):
             metadata={"has_provider": bool(candidate.get("provider_number"))},
         )
         return {"outcome": "new_pending", "code": "new"}
+
+
+class ReferralReportSyncWorkflow(BaseWorkflow):
+    """
+    OpenClaw-orchestrated workflow to ingest patient-level referral reports.
+    Processes report files or text content deterministically.
+    """
+    name: ClassVar[str] = "referral_report_sync"
+
+    def execute(
+        self,
+        ctx: WorkflowContext,
+        *,
+        report_path: str | None = None,
+        report_text: str | None = None,
+        source_name: str = "report.csv",
+        sync_to_nookal: bool = False,
+        association_store = None,
+        conflict_store = None,
+        **_extra: Any,
+    ) -> WorkflowResult:
+        from app.orchestration.referral_sync_service import (
+            ReferralAssociationStore,
+            ReferralSyncService,
+        )
+        from app.orchestration.referral_report import MalformedReportError
+
+        assoc_store = association_store or ReferralAssociationStore()
+        conf_store = conflict_store or ReferrerConflictStore()
+
+        service = ReferralSyncService(
+            nookal=ctx.nookal,
+            association_store=assoc_store,
+            conflict_store=conf_store,
+            audit=ctx.audit,
+            clock=ctx.clock,
+        )
+
+        try:
+            if report_path:
+                summary = service.sync_report_file(
+                    report_path,
+                    actor=ctx.actor,
+                    correlation_id=ctx.correlation_id,
+                    sync_to_nookal=sync_to_nookal,
+                )
+            elif report_text:
+                summary = service.sync_report_text(
+                    report_text,
+                    source_name=source_name,
+                    actor=ctx.actor,
+                    correlation_id=ctx.correlation_id,
+                    sync_to_nookal=sync_to_nookal,
+                )
+            else:
+                return WorkflowResult.skipped(
+                    self.name,
+                    ctx.correlation_id,
+                    reason="neither report_path nor report_text provided",
+                )
+        except MalformedReportError as exc:
+            return WorkflowResult.failed(
+                self.name,
+                ctx.correlation_id,
+                code="malformed_report",
+                message=str(exc),
+            )
+        except Exception as exc:
+            return WorkflowResult.failed(
+                self.name,
+                ctx.correlation_id,
+                code="sync_error",
+                message=str(exc),
+            )
+
+        status = WorkflowStatus.SUCCESS
+        if summary.errors:
+            status = WorkflowStatus.PARTIAL
+
+        return WorkflowResult(
+            workflow=self.name,
+            status=status,
+            correlation_id=ctx.correlation_id,
+            data={
+                "total_rows": summary.total_rows,
+                "matched_exact": summary.matched_exact,
+                "updated_changed": summary.updated_changed,
+                "unchanged": summary.unchanged,
+                "conflicts_queued": summary.conflicts_queued,
+                "new_pending_queued": summary.new_pending_queued,
+                "review_required_patients": summary.review_required_patients,
+                "errors": summary.errors,
+            },
+        )
+

@@ -139,6 +139,9 @@ def build_dashboard_env(
     sessions = SessionStore(clock=clock, ttl_seconds=3600)
     conflict_store = ReferrerConflictStore()
 
+    from app.orchestration.referral_sync_service import ReferralAssociationStore
+    referral_store = ReferralAssociationStore(tmp_path / "referral_associations.jsonl")
+
     container = DashboardContainer(
         nookal=nookal,
         messaging=messaging,
@@ -151,6 +154,7 @@ def build_dashboard_env(
         document_store=doc_store,
         document_delivery=doc_delivery,
         conflict_store=conflict_store,
+        referral_association_store=referral_store,
         pending_actions=PendingActionStore(clock=clock, ttl_minutes=30),
         kill_switch_path=kill_flag,
         environment="test",
@@ -158,6 +162,7 @@ def build_dashboard_env(
         nookal_live_configured=False,
         messaging_live_configured=False,
     )
+
     app = create_app(container)
     return DashboardTestEnv(
         app=app,

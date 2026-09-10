@@ -73,18 +73,25 @@ def load_clinic_seed(
             client._audit = audit
 
     for row in data.get("patients") or []:
+        disp = row.get("display_name") or ""
+        parts = disp.strip().split()
+        first = row.get("first_name") or (parts[0] if parts else None)
+        last = row.get("last_name") or (parts[-1] if len(parts) > 1 else None)
         client.seed_patient(
             PatientRef(
                 patient_id=str(row["patient_id"]),
+                first_name=first,
+                last_name=last,
                 phone=row.get("phone"),
                 email=row.get("email"),
-                display_name=row.get("display_name"),
+                display_name=disp or None,
                 date_of_birth=_parse_date(row.get("date_of_birth")),
                 suburb=row.get("suburb"),
                 referrer_id=row.get("referrer_id"),
                 last_appointment_date=_parse_date(row.get("last_appointment_date")),
             )
         )
+
 
     for row in data.get("referrers") or []:
         client.seed_referrer(

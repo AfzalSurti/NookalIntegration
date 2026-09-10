@@ -59,5 +59,7 @@ class DashboardContainer:
     finance_categorizer: Any | None = None
     finance_register: Any | None = None
     case_tracking: Any | None = None
+    referral_association_store: Any | None = None
     session_cookie_name: str = "bte_session"
     csrf_header_name: str = "X-CSRF-Token"
+

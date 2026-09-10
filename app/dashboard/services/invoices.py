@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from app.dashboard.schemas import PatientInvoiceOut
 from app.nookal_client import Invoice, InvoiceEntry, NookalClient
 from app.shared.clock import Clock, SystemClock
+from app.shared.exceptions import NookalNotFound
 
 
 AuditFn = Callable[..., Any]
@@ -35,10 +37,14 @@ class InvoiceService:
         page: int = 1,
         page_length: int = 50,
     ) -> list[Invoice]:
-        all_invoices = self._nookal.get_invoices(
-            patient_id=patient_id,
-            expanded=1,
-        )
+        try:
+            all_invoices = self._nookal.get_invoices(
+                patient_id=patient_id,
+                expanded=1,
+            )
+        except NookalNotFound:
+            all_invoices = []
+
         filtered = all_invoices
         if status:
             norm_status = status.lower()
@@ -66,6 +72,34 @@ class InvoiceService:
             },
         )
         return invoices
+
+    def list_for_patient(
+        self,
+        patient_id: str,
+        *,
+        actor: str,
+        role: str,
+        correlation_id: str,
+    ) -> list[PatientInvoiceOut]:
+        invs = self.list_invoices(
+            actor=actor,
+            role=role,
+            correlation_id=correlation_id,
+            patient_id=patient_id,
+            page=1,
+            page_length=200,
+        )
+        return [
+            PatientInvoiceOut(
+                invoice_id=inv.invoice_id,
+                patient_id=inv.patient_id,
+                date=inv.date,
+                total=inv.total,
+                status=inv.status,
+                void=inv.void,
+            )
+            for inv in invs
+        ]
 
     def get_invoice(
         self,

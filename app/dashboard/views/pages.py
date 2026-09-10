@@ -15,11 +15,13 @@ from app.dashboard.dependencies import (
     approval_service,
     appointment_service,
     audit_viewer_service,
+    case_service,
     get_container,
     get_correlation_id,
     get_session,
     invoice_service,
     marketing_service,
+    patient_file_service,
     patient_service,
     referrer_service,
     require_permission,
@@ -31,8 +33,10 @@ from app.dashboard.services import (
     ApprovalService,
     AppointmentService,
     AuditViewerService,
+    CaseService,
     InvoiceService,
     MarketingService,
+    PatientFileService,
     PatientService,
     ReferrerConflictService,
     SystemService,
@@ -313,12 +317,17 @@ async def patient_file_url(
     patient_id: str,
     file_id: str,
     user: Annotated[User, Depends(require_permission(Permission.PATIENT_VIEW))],
-    container: Annotated[DashboardContainer, Depends(get_container)],
+    svc: Annotated[PatientFileService, Depends(patient_file_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> RedirectResponse:
-    if not hasattr(container.nookal, "get_file_url"):
-        raise HTTPException(status_code=501, detail="Nookal file download unsupported")
     try:
-        url = container.nookal.get_file_url(patient_id, file_id)
+        url = svc.get_file_url(
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+            patient_id=patient_id,
+            file_id=file_id,
+        )
         return RedirectResponse(url=url, status_code=303)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="File URL could not be retrieved") from exc
@@ -434,13 +443,30 @@ async def documents_page(
     session: Annotated[Session | None, Depends(get_session)],
     container: Annotated[DashboardContainer, Depends(get_container)],
     svc: Annotated[ApprovalService, Depends(approval_service)],
+    file_svc: Annotated[PatientFileService, Depends(patient_file_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
+    patient_id: str | None = None,
 ) -> HTMLResponse:
     tasks = svc.document_tasks(
         actor=user.user_id,
         role=user.role,
         correlation_id=correlation_id,
     )
+    clean_patient = patient_id.strip() if patient_id and patient_id.strip() else None
+    patient_files = []
+    files_error = None
+    if clean_patient:
+        try:
+            patient_files = file_svc.list_files(
+                actor=user.user_id,
+                role=user.role,
+                correlation_id=correlation_id,
+                patient_id=clean_patient,
+            )
+        except Exception:
+            patient_files = []
+            files_error = "Unable to load patient files from Nookal at this time."
+
     return _templates(request).TemplateResponse(
         request,
         name="documents.html",
@@ -452,6 +478,9 @@ async def documents_page(
                 "tasks": tasks,
                 "can_approve": _can(container, user.role, Permission.APPROVAL_APPROVE),
                 "can_reject": _can(container, user.role, Permission.APPROVAL_REJECT),
+                "patient_id_filter": clean_patient or "",
+                "patient_files": patient_files,
+                "files_error": files_error,
             },
         ),
     )
@@ -521,6 +550,7 @@ async def finance_invoices_page(
     clean_from = date_from.strip() if date_from and date_from.strip() else None
     clean_to = date_to.strip() if date_to and date_to.strip() else None
 
+    invoices_error = None
     try:
         invoices = svc.list_invoices(
             actor=user.user_id,
@@ -535,6 +565,7 @@ async def finance_invoices_page(
         )
     except Exception:
         invoices = []
+        invoices_error = "Unable to load Nookal invoices at this time."
 
     filters = {
         "patient_id": clean_patient or "",
@@ -553,6 +584,7 @@ async def finance_invoices_page(
             session,
             extra={
                 "invoices": invoices,
+                "invoices_error": invoices_error,
                 "filters": filters,
                 "has_active_filters": has_active_filters,
             },
@@ -566,15 +598,24 @@ async def cases_page(
     user: Annotated[User, Depends(require_permission(Permission.CASE_VIEW))],
     session: Annotated[Session | None, Depends(get_session)],
     container: Annotated[DashboardContainer, Depends(get_container)],
+    svc: Annotated[CaseService, Depends(case_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> HTMLResponse:
     tracker = getattr(container, "case_tracking", None)
     flagged_cases = tracker.flagged_cases() if tracker is not None else []
     nookal_cases = []
-    if hasattr(container.nookal, "get_all_cases"):
-        try:
-            nookal_cases = container.nookal.get_all_cases(page=1, page_length=50)
-        except Exception:
-            nookal_cases = []
+    cases_error = None
+    try:
+        nookal_cases = svc.list_cases(
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+            page=1,
+            page_length=50,
+        )
+    except Exception:
+        nookal_cases = []
+        cases_error = "Unable to load Nookal clinical cases at this time."
 
     return _templates(request).TemplateResponse(
         request,
@@ -586,6 +627,7 @@ async def cases_page(
             extra={
                 "cases": flagged_cases,
                 "nookal_cases": nookal_cases,
+                "cases_error": cases_error,
                 "can_acknowledge": _can(container, user.role, Permission.CASE_ACKNOWLEDGE),
             },
         ),
@@ -606,6 +648,13 @@ async def referrers_page(
         role=user.role,
         correlation_id=correlation_id,
     )
+    from app.orchestration.referral_sync_service import ReferralAssociationStore
+    assoc_store = getattr(container, "referral_association_store", None)
+    if assoc_store is None:
+        assoc_store = ReferralAssociationStore()
+        container.referral_association_store = assoc_store
+    associations = assoc_store.list_all()
+
     return _templates(request).TemplateResponse(
         request,
         name="referrers.html",
@@ -615,10 +664,12 @@ async def referrers_page(
             session,
             extra={
                 "conflicts": conflicts,
+                "associations": associations,
                 "can_resolve": _can(container, user.role, Permission.REFERRER_RESOLVE),
             },
         ),
     )
+
 
 
 @router.get("/audit", response_class=HTMLResponse)

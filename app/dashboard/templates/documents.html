@@ -91,8 +91,83 @@
   </div>
 </div>
 
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Nookal Patient Files & Uploads {% if patient_files %}({{ patient_files|length }}){% endif %}</div>
+    {% if patient_id_filter %}
+      <a href="/documents" class="btn btn-secondary btn-sm">Clear Search</a>
+    {% endif %}
+  </div>
+  <form method="get" action="/documents" style="padding: var(--sp-4) var(--sp-5) 0 var(--sp-5);">
+    <div class="form-row" style="grid-template-columns: 1fr auto; align-items: flex-end; gap: var(--sp-3);">
+      <div class="form-group" style="margin-bottom: 0;">
+        <label for="patient_id" style="font-size: 0.82rem; font-weight: 600;">Search Patient Files by Patient ID</label>
+        <input id="patient_id" name="patient_id" value="{{ patient_id_filter }}" placeholder="e.g. 1001 or pat_1001" style="height: 36px;">
+      </div>
+      <button type="submit" class="btn btn-primary" style="height: 36px;">Search Files</button>
+    </div>
+  </form>
+
+  {% if files_error %}
+  <div style="padding: var(--sp-4) var(--sp-5) 0 var(--sp-5);">
+    <div class="alert alert-error">{{ files_error }}</div>
+  </div>
+  {% endif %}
+
+  <div class="table-wrapper" style="margin-top: var(--sp-4);">
+    <table>
+      <thead>
+        <tr>
+          <th>File ID</th>
+          <th>Patient ID</th>
+          <th>Filename</th>
+          <th>Type</th>
+          <th>Date Added</th>
+          <th>Size</th>
+          <th style="text-align: right;">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% if patient_files %}
+        {% for f in patient_files %}
+          <tr>
+            <td><code>{{ f.file_id }}</code></td>
+            <td><a href="/patients/{{ f.patient_id }}"><strong>{{ f.patient_id }}</strong></a></td>
+            <td><strong>{{ f.name or "Unnamed File" }}</strong></td>
+            <td><span class="badge badge-neutral">{{ f.file_type or "file" }}</span></td>
+            <td>{{ f.date_added or "—" }}</td>
+            <td>{{ (f.size / 1024)|round(1) ~ " KB" if f.size else "—" }}</td>
+            <td style="text-align: right;">
+              <a href="/patients/{{ f.patient_id }}/files/{{ f.file_id }}/url" target="_blank" class="btn btn-secondary btn-sm">Download / View</a>
+            </td>
+          </tr>
+        {% endfor %}
+      {% elif patient_id_filter %}
+        <tr>
+          <td colspan="7">
+            <div class="empty-state">
+              <div class="empty-state-title">No patient files found</div>
+              <div class="empty-state-text">No files uploaded to Nookal for patient #{{ patient_id_filter }}.</div>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="7">
+            <div class="empty-state">
+              <div class="empty-state-title">Search Patient Documents</div>
+              <div class="empty-state-text">Enter a Patient ID above to view files and PDFs uploaded to Nookal.</div>
+            </div>
+          </td>
+        </tr>
+      {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <div class="info-banner">
-  Integration Notice: Generated letters and certificates undergo human clinical review prior to filing. Automatic document upload to Nookal will be activated as official Nookal v2 document endpoints become available.
+  Integration Notice: Generated letters and certificates undergo human clinical review prior to filing. Clinical files uploaded to Nookal are retrieved via official Nookal v2 document endpoints.
 </div>
 
 <!-- Document Approval Modal -->

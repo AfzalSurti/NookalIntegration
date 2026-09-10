@@ -114,6 +114,9 @@ class PatientDetail(BaseModel):
     treatment_notes: list[TreatmentNoteOut] = Field(default_factory=list)
     patient_files: list[PatientFileOut] = Field(default_factory=list)
     invoices: list[PatientInvoiceOut] = Field(default_factory=list)
+    cases_error: str | None = None
+    files_error: str | None = None
+    invoices_error: str | None = None
 
 
 

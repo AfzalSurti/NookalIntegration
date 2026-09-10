@@ -84,6 +84,9 @@ def _unwrap_collection(data: Any, preferred_key: str | None = None) -> list[Any]
                 return []
             if all(isinstance(v, Mapping) for v in val.values()):
                 return list(val.values())
+            dict_records = [v for v in val.values() if isinstance(v, Mapping)]
+            if dict_records:
+                return dict_records
         return None
 
     def _find_in_dict(d: Mapping[str, Any], key: str) -> Any:
@@ -1255,7 +1258,7 @@ class HttpNookalClient(NookalClient):
             params=params,
         )
         rows = _unwrap_collection(data, "cases")
-        return [self._parse_case(r) for r in rows if isinstance(r, Mapping)]
+        return [self._parse_case(r, fallback_patient_id=patient_id) for r in rows if isinstance(r, Mapping)]
 
     def get_all_cases(
         self,
@@ -1310,7 +1313,7 @@ class HttpNookalClient(NookalClient):
             params=params,
         )
         rows = _unwrap_collection(data, "notes")
-        return [self._parse_treatment_note(r) for r in rows if isinstance(r, Mapping)]
+        return [self._parse_treatment_note(r, fallback_patient_id=patient_id) for r in rows if isinstance(r, Mapping)]
 
     def get_all_treatment_notes(
         self,
@@ -2029,7 +2032,7 @@ class HttpNookalClient(NookalClient):
             params=params,
         )
         rows = _unwrap_collection(data, "files")
-        return [self._parse_patient_file(r) for r in rows if isinstance(r, Mapping)]
+        return [self._parse_patient_file(r, fallback_patient_id=patient_id) for r in rows if isinstance(r, Mapping)]
 
     def get_file_url(self, patient_id: str, file_id: str) -> str:
         if not patient_id or not file_id:
@@ -2044,7 +2047,23 @@ class HttpNookalClient(NookalClient):
         )
         url = None
         if isinstance(data, Mapping):
-            url = data.get("url") or data.get("file_url") or data.get("download_url")
+            url = (
+                data.get("url")
+                or data.get("URL")
+                or data.get("file_url")
+                or data.get("fileUrl")
+                or data.get("download_url")
+                or data.get("downloadUrl")
+            )
+            if not url and isinstance(data.get("file"), Mapping):
+                file_obj = data["file"]
+                url = (
+                    file_obj.get("url")
+                    or file_obj.get("URL")
+                    or file_obj.get("file_url")
+                    or file_obj.get("fileUrl")
+                    or file_obj.get("download_url")
+                )
         elif isinstance(data, str):
             url = data
         if not url:
@@ -2226,7 +2245,7 @@ class HttpNookalClient(NookalClient):
             params=params,
         )
         rows = _unwrap_collection(data, "invoices")
-        return [self._parse_invoice(r) for r in rows if isinstance(r, Mapping)]
+        return [self._parse_invoice(r, fallback_patient_id=patient_id) for r in rows if isinstance(r, Mapping)]
 
     def get_invoice_entries(
         self,
@@ -2674,43 +2693,94 @@ class HttpNookalClient(NookalClient):
         )
 
     @staticmethod
-    def _parse_case(data: Any) -> CaseRef:
+    def _parse_case(data: Any, fallback_patient_id: str | None = None) -> CaseRef:
         if not isinstance(data, Mapping):
             raise NookalValidationError("unexpected case payload shape")
-        cid = data.get("ID") or data.get("id") or data.get("case_id") or data.get("caseID")
-        pid = data.get("patientID") or data.get("patient_id") or data.get("PatientID")
+        cid = (
+            data.get("ID")
+            or data.get("id")
+            or data.get("case_id")
+            or data.get("caseID")
+            or data.get("CaseID")
+            or data.get("caseId")
+        )
+        pid = (
+            data.get("patientID")
+            or data.get("patient_id")
+            or data.get("PatientID")
+            or data.get("Patient_ID")
+            or data.get("patientId")
+            or fallback_patient_id
+        )
         if not cid or not pid:
             raise NookalValidationError("case payload missing id or patient_id")
 
         return CaseRef(
             case_id=str(cid),
             patient_id=str(pid),
-            case_name=data.get("caseName") or data.get("case_name") or data.get("name"),
-            case_number=data.get("caseNumber") or data.get("case_number"),
-            status=data.get("status"),
-            date_created=data.get("dateCreated") or data.get("date_created"),
-            date_modified=data.get("dateModified") or data.get("date_modified"),
-            closed_date=data.get("closedDate") or data.get("closed_date"),
+            case_name=(
+                data.get("caseName")
+                or data.get("case_name")
+                or data.get("name")
+                or data.get("CaseName")
+                or data.get("title")
+            ),
+            case_number=(
+                data.get("caseNumber")
+                or data.get("case_number")
+                or data.get("CaseNumber")
+            ),
+            status=data.get("status") or data.get("Status"),
+            date_created=(
+                data.get("dateCreated")
+                or data.get("date_created")
+                or data.get("DateCreated")
+            ),
+            date_modified=(
+                data.get("dateModified")
+                or data.get("date_modified")
+                or data.get("DateModified")
+            ),
+            closed_date=(
+                data.get("closedDate")
+                or data.get("closed_date")
+                or data.get("ClosedDate")
+            ),
             raw=dict(data),
         )
 
     @staticmethod
-    def _parse_treatment_note(data: Any) -> TreatmentNote:
+    def _parse_treatment_note(data: Any, fallback_patient_id: str | None = None) -> TreatmentNote:
         if not isinstance(data, Mapping):
             raise NookalValidationError("unexpected treatment note payload shape")
-        nid = data.get("ID") or data.get("id") or data.get("note_id") or data.get("noteID")
-        pid = data.get("patientID") or data.get("patient_id") or data.get("PatientID")
+        nid = data.get("ID") or data.get("id") or data.get("note_id") or data.get("noteID") or data.get("NoteID")
+        pid = (
+            data.get("patientID")
+            or data.get("patient_id")
+            or data.get("PatientID")
+            or data.get("patientId")
+            or fallback_patient_id
+        )
         if not nid or not pid:
             raise NookalValidationError("treatment note payload missing id or patient_id")
 
         return TreatmentNote(
             note_id=str(nid),
             patient_id=str(pid),
-            case_id=data.get("caseID") or data.get("case_id"),
-            practitioner_id=data.get("practitionerID") or data.get("practitioner_id"),
-            date=data.get("date"),
-            notes=data.get("notes"),
-            appointment_id=data.get("apptID") or data.get("appt_id") or data.get("appointment_id"),
+            case_id=data.get("caseID") or data.get("case_id") or data.get("CaseID"),
+            practitioner_id=(
+                data.get("practitionerID")
+                or data.get("practitioner_id")
+                or data.get("PractitionerID")
+            ),
+            date=data.get("date") or data.get("Date"),
+            notes=data.get("notes") or data.get("Notes") or data.get("note"),
+            appointment_id=(
+                data.get("apptID")
+                or data.get("appt_id")
+                or data.get("appointment_id")
+                or data.get("appointmentID")
+            ),
             raw=dict(data),
         )
 
@@ -2835,69 +2905,184 @@ class HttpNookalClient(NookalClient):
         )
 
     @staticmethod
-    def _parse_patient_file(data: Any) -> PatientFile:
+    def _parse_patient_file(data: Any, fallback_patient_id: str | None = None) -> PatientFile:
         if not isinstance(data, Mapping):
             raise NookalValidationError("unexpected patient file payload shape")
-        fid = data.get("ID") or data.get("id") or data.get("file_id") or data.get("fileID")
-        pid = data.get("patientID") or data.get("patient_id") or data.get("PatientID")
-        name = data.get("name") or data.get("filename") or data.get("file_path") or "file"
-        size = data.get("size") or data.get("file_size")
+        fid = (
+            data.get("ID")
+            or data.get("id")
+            or data.get("file_id")
+            or data.get("fileID")
+            or data.get("FileID")
+            or data.get("fileId")
+        )
+        pid = (
+            data.get("patientID")
+            or data.get("patient_id")
+            or data.get("PatientID")
+            or data.get("Patient_ID")
+            or data.get("patientId")
+            or fallback_patient_id
+        )
+        name = (
+            data.get("name")
+            or data.get("filename")
+            or data.get("fileName")
+            or data.get("FileName")
+            or data.get("file_name")
+            or data.get("title")
+            or data.get("file_path")
+            or "file"
+        )
+        size = data.get("size") or data.get("file_size") or data.get("fileSize") or data.get("FileSize")
+        parsed_size: int | None = None
+        if size is not None:
+            try:
+                parsed_size = int(float(size))
+            except (ValueError, TypeError):
+                parsed_size = None
 
         return PatientFile(
             file_id=str(fid or ""),
             patient_id=str(pid or ""),
             name=str(name),
-            file_type=data.get("fileType") or data.get("file_type"),
-            date_added=data.get("dateAdded") or data.get("date_added"),
-            size=int(size) if size is not None and str(size).isdigit() else None,
+            file_type=(
+                data.get("fileType")
+                or data.get("file_type")
+                or data.get("FileType")
+                or data.get("extension")
+                or data.get("type")
+            ),
+            date_added=(
+                data.get("dateAdded")
+                or data.get("date_added")
+                or data.get("DateAdded")
+                or data.get("created")
+                or data.get("date")
+            ),
+            size=parsed_size,
             raw=dict(data),
         )
 
     @staticmethod
-    def _parse_invoice(data: Any) -> Invoice:
+    def _parse_invoice(data: Any, fallback_patient_id: str | None = None) -> Invoice:
         if not isinstance(data, Mapping):
             raise NookalValidationError("unexpected invoice payload shape")
-        iid = data.get("ID") or data.get("id") or data.get("invoice_id") or data.get("invoiceID")
-        pid = data.get("patientID") or data.get("patient_id") or data.get("PatientID")
-        total = data.get("total") or data.get("amount") or data.get("invoice_total")
-        void_val = data.get("void")
+        iid = (
+            data.get("ID")
+            or data.get("id")
+            or data.get("invoice_id")
+            or data.get("invoiceID")
+            or data.get("InvoiceID")
+            or data.get("invoiceId")
+        )
+        pid = (
+            data.get("patientID")
+            or data.get("patient_id")
+            or data.get("PatientID")
+            or data.get("Patient_ID")
+            or data.get("patientId")
+            or fallback_patient_id
+        )
+        total = (
+            data.get("total")
+            or data.get("amount")
+            or data.get("invoice_total")
+            or data.get("invoiceTotal")
+            or data.get("Total")
+        )
+        void_val = data.get("void") or data.get("isVoid") or data.get("is_void")
 
-        entries_raw = data.get("entries") or data.get("items") or []
+        entries_raw = (
+            data.get("entries")
+            or data.get("items")
+            or data.get("invoice_entries")
+            or []
+        )
+        if isinstance(entries_raw, Mapping):
+            entries_raw = list(entries_raw.values())
         entries = []
         if isinstance(entries_raw, list):
             for e in entries_raw:
                 if isinstance(e, Mapping):
-                    entries.append(HttpNookalClient._parse_invoice_entry(e))
+                    entries.append(
+                        HttpNookalClient._parse_invoice_entry(
+                            e, fallback_invoice_id=str(iid or "")
+                        )
+                    )
+
+        parsed_total: float | None = None
+        if total is not None:
+            try:
+                if isinstance(total, (int, float)):
+                    parsed_total = float(total)
+                else:
+                    cleaned = str(total).replace("$", "").replace(",", "").strip()
+                    parsed_total = float(cleaned) if cleaned else None
+            except (ValueError, TypeError):
+                parsed_total = None
 
         return Invoice(
             invoice_id=str(iid or ""),
             patient_id=str(pid or ""),
-            date=data.get("date") or data.get("invoiceDate") or data.get("invoice_date"),
-            total=float(total) if total is not None else None,
-            status=data.get("status"),
-            void=bool(void_val in (1, "1", True)),
+            date=(
+                data.get("date")
+                or data.get("invoiceDate")
+                or data.get("invoice_date")
+                or data.get("Date")
+            ),
+            total=parsed_total,
+            status=data.get("status") or data.get("Status"),
+            void=bool(void_val in (1, "1", True, "true", "True")),
             expanded=bool(entries),
             entries=entries,
             raw=dict(data),
         )
 
     @staticmethod
-    def _parse_invoice_entry(data: Any) -> InvoiceEntry:
+    def _parse_invoice_entry(
+        data: Any, fallback_invoice_id: str | None = None
+    ) -> InvoiceEntry:
         if not isinstance(data, Mapping):
             raise NookalValidationError("unexpected invoice entry payload shape")
-        eid = data.get("ID") or data.get("id") or data.get("entry_id")
-        price = data.get("price") or data.get("amount")
-        qty = data.get("quantity") or data.get("qty")
-        tax = data.get("tax")
+        eid = (
+            data.get("ID")
+            or data.get("id")
+            or data.get("entry_id")
+            or data.get("entryID")
+            or data.get("EntryID")
+        )
+        price = data.get("price") or data.get("amount") or data.get("Price")
+        qty = data.get("quantity") or data.get("qty") or data.get("Quantity")
+        tax = data.get("tax") or data.get("Tax")
+
+        def _clean_num(val: Any) -> float | None:
+            if val is None:
+                return None
+            try:
+                if isinstance(val, (int, float)):
+                    return float(val)
+                cleaned = str(val).replace("$", "").replace(",", "").strip()
+                return float(cleaned) if cleaned else None
+            except (ValueError, TypeError):
+                return None
 
         return InvoiceEntry(
             entry_id=str(eid or ""),
-            invoice_id=str(data.get("invoiceID") or data.get("invoice_id") or "") or None,
-            item_id=str(data.get("itemID") or data.get("item_id") or "") or None,
-            description=data.get("description") or data.get("item_name"),
-            price=float(price) if price is not None else None,
-            quantity=float(qty) if qty is not None else None,
-            tax=float(tax) if tax is not None else None,
+            invoice_id=str(
+                data.get("invoiceID")
+                or data.get("invoice_id")
+                or data.get("InvoiceID")
+                or fallback_invoice_id
+                or ""
+            )
+            or None,
+            item_id=str(data.get("itemID") or data.get("item_id") or data.get("ItemID") or "")
+            or None,
+            description=data.get("description") or data.get("item_name") or data.get("name"),
+            price=_clean_num(price),
+            quantity=_clean_num(qty),
+            tax=_clean_num(tax),
             raw=dict(data),
         )
 
@@ -2971,14 +3156,24 @@ class MockNookalClient(NookalClient):
             if patient.last_appointment_date is None or appt_day > patient.last_appointment_date:
                 self.patients[patient.patient_id] = PatientRef(
                     patient_id=patient.patient_id,
+                    first_name=patient.first_name,
+                    last_name=patient.last_name,
+                    middle_name=patient.middle_name,
+                    nickname=patient.nickname,
                     phone=patient.phone,
                     email=patient.email,
                     display_name=patient.display_name,
                     date_of_birth=patient.date_of_birth,
+                    gender=patient.gender,
                     suburb=patient.suburb,
+                    address=patient.address,
+                    postal_address=patient.postal_address,
+                    online_code=patient.online_code,
+                    deceased=patient.deceased,
                     referrer_id=patient.referrer_id,
                     last_appointment_date=appt_day,
                 )
+
 
     def seed_referrer(self, referrer: Referrer) -> None:
         self.referrers[referrer.referrer_id] = referrer

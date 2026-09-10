@@ -154,6 +154,11 @@
   <div class="card-header">
     <div class="card-title">Cases ({{ patient.cases|length }})</div>
   </div>
+  {% if patient.cases_error %}
+  <div style="padding: var(--sp-4);">
+    <div class="alert alert-error">{{ patient.cases_error }}</div>
+  </div>
+  {% else %}
   <div class="table-wrapper">
     <table>
       <thead>
@@ -195,6 +200,7 @@
       </tbody>
     </table>
   </div>
+  {% endif %}
 </div>
 
 <div class="card" style="margin-top: var(--sp-6);">
@@ -240,6 +246,11 @@
   <div class="card-header">
     <div class="card-title">Patient Files & Uploads ({{ patient.patient_files|length }})</div>
   </div>
+  {% if patient.files_error %}
+  <div style="padding: var(--sp-4);">
+    <div class="alert alert-error">{{ patient.files_error }}</div>
+  </div>
+  {% else %}
   <div class="table-wrapper">
     <table>
       <thead>
@@ -277,12 +288,18 @@
       </tbody>
     </table>
   </div>
+  {% endif %}
 </div>
 
 <div class="card" style="margin-top: var(--sp-6);">
   <div class="card-header">
     <div class="card-title">Nookal Invoices ({{ patient.invoices|length }})</div>
   </div>
+  {% if patient.invoices_error %}
+  <div style="padding: var(--sp-4);">
+    <div class="alert alert-error">{{ patient.invoices_error }}</div>
+  </div>
+  {% else %}
   <div class="table-wrapper">
     <table>
       <thead>
@@ -330,5 +347,6 @@
       </tbody>
     </table>
   </div>
+  {% endif %}
 </div>
 {% endblock %}

@@ -1,6 +1,7 @@
 """Patient search and detail — uses injected NookalClient only."""
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Any, Callable
 
@@ -18,7 +19,9 @@ from app.dashboard.schemas import (
 from app.letters import DocumentStore
 from app.nookal_client import NookalClient, PatientRef
 from app.shared.clock import Clock, SystemClock
+from app.shared.exceptions import NookalNotFound
 
+logger = logging.getLogger(__name__)
 
 AuditFn = Callable[..., Any]
 
@@ -153,6 +156,7 @@ class PatientService:
                 )
 
         cases_out: list[CaseOut] = []
+        cases_error: str | None = None
         if hasattr(self._nookal, "get_cases"):
             try:
                 cases = self._nookal.get_cases(patient_id)
@@ -168,8 +172,11 @@ class PatientService:
                     )
                     for c in cases
                 ]
-            except Exception:
+            except NookalNotFound:
                 cases_out = []
+            except Exception as exc:
+                logger.warning("Failed to fetch cases for patient %s: %s", patient_id, type(exc).__name__)
+                cases_error = "Unable to load clinical cases from Nookal at this time."
 
         notes_out: list[TreatmentNoteOut] = []
         if hasattr(self._nookal, "get_treatment_notes"):
@@ -187,10 +194,14 @@ class PatientService:
                     )
                     for n in notes
                 ]
-            except Exception:
+            except NookalNotFound:
+                notes_out = []
+            except Exception as exc:
+                logger.warning("Failed to fetch treatment notes for patient %s: %s", patient_id, type(exc).__name__)
                 notes_out = []
 
         files_out: list[PatientFileOut] = []
+        files_error: str | None = None
         if hasattr(self._nookal, "get_patient_files"):
             try:
                 files = self._nookal.get_patient_files(patient_id)
@@ -205,10 +216,14 @@ class PatientService:
                     )
                     for f in files
                 ]
-            except Exception:
+            except NookalNotFound:
                 files_out = []
+            except Exception as exc:
+                logger.warning("Failed to fetch patient files for patient %s: %s", patient_id, type(exc).__name__)
+                files_error = "Unable to load patient files from Nookal at this time."
 
         invoices_out: list[PatientInvoiceOut] = []
+        invoices_error: str | None = None
         if hasattr(self._nookal, "get_invoices"):
             try:
                 invoices = self._nookal.get_invoices(patient_id=patient_id)
@@ -223,8 +238,11 @@ class PatientService:
                     )
                     for inv in invoices
                 ]
-            except Exception:
+            except NookalNotFound:
                 invoices_out = []
+            except Exception as exc:
+                logger.warning("Failed to fetch invoices for patient %s: %s", patient_id, type(exc).__name__)
+                invoices_error = "Unable to load invoices from Nookal at this time."
 
         self._audit(
             actor=actor,
@@ -254,4 +272,7 @@ class PatientService:
             treatment_notes=notes_out,
             patient_files=files_out,
             invoices=invoices_out,
+            cases_error=cases_error,
+            files_error=files_error,
+            invoices_error=invoices_error,
         )

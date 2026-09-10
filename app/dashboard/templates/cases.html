@@ -72,6 +72,11 @@
   <div class="card-header">
     <div class="card-title">Nookal Clinical Cases ({{ nookal_cases|length }})</div>
   </div>
+  {% if cases_error %}
+  <div style="padding: var(--sp-4);">
+    <div class="alert alert-error">{{ cases_error }}</div>
+  </div>
+  {% endif %}
   <div class="table-wrapper">
     <table>
       <thead>
