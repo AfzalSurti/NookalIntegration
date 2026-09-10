@@ -47,6 +47,9 @@ class AppointmentSummary(BaseModel):
     ends_at: datetime | None = None
     status: str | None = None
     practitioner_id: str | None = None
+    location_id: str | None = None
+    appointment_type: str | None = None
+
 
 
 class DocumentMetaOut(BaseModel):
@@ -56,6 +59,44 @@ class DocumentMetaOut(BaseModel):
     status: str | None = None
     template_id: str | None = None
     task_id: str | None = None
+
+
+class CaseOut(BaseModel):
+    case_id: str
+    patient_id: str
+    case_name: str | None = None
+    case_number: str | None = None
+    status: str | None = None
+    date_created: str | None = None
+    closed_date: str | None = None
+
+
+class TreatmentNoteOut(BaseModel):
+    note_id: str
+    patient_id: str
+    case_id: str | None = None
+    practitioner_id: str | None = None
+    date: str | None = None
+    notes: str | None = None
+    appointment_id: str | None = None
+
+
+class PatientFileOut(BaseModel):
+    file_id: str
+    patient_id: str
+    name: str | None = None
+    file_type: str | None = None
+    date_added: str | None = None
+    size: int | None = None
+
+
+class PatientInvoiceOut(BaseModel):
+    invoice_id: str
+    patient_id: str
+    date: str | None = None
+    total: float | None = None
+    status: str | None = None
+    void: bool = False
 
 
 class PatientDetail(BaseModel):
@@ -69,6 +110,11 @@ class PatientDetail(BaseModel):
     last_appointment_date: date | None = None
     appointments: list[AppointmentSummary] = Field(default_factory=list)
     documents: list[DocumentMetaOut] = Field(default_factory=list)
+    cases: list[CaseOut] = Field(default_factory=list)
+    treatment_notes: list[TreatmentNoteOut] = Field(default_factory=list)
+    patient_files: list[PatientFileOut] = Field(default_factory=list)
+    invoices: list[PatientInvoiceOut] = Field(default_factory=list)
+
 
 
 class SafeDraftOut(BaseModel):

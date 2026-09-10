@@ -65,20 +65,33 @@ class AppointmentService:
         date_from: date | None = None,
         date_to: date | None = None,
         patient_id: str | None = None,
+        location_id: str | None = None,
+        practitioner_id: str | None = None,
+        status: str | None = None,
     ) -> list[AppointmentSummary]:
         today = self._clock.now().date()
         start = date_from or today
+        api_status = status if status and status.lower() not in {"all", ""} else None
         appointments = self._nookal.list_appointments(
             date_from=start,
             date_to=date_to,
             patient_id=patient_id,
+            location_id=location_id,
+            practitioner_id=practitioner_id,
+            status=api_status,
         )
-        # Prefer upcoming / non-cancelled operational view.
-        operational = [
-            a
-            for a in appointments
-            if (a.status or "").lower() not in {"cancelled", "canceled"}
-        ]
+        if status and status.lower() == "all":
+            operational = appointments
+        elif status:
+            target = status.lower()
+            operational = [a for a in appointments if (a.status or "").lower() == target]
+        else:
+            # Prefer upcoming / non-cancelled operational view.
+            operational = [
+                a
+                for a in appointments
+                if (a.status or "").lower() not in {"cancelled", "canceled"}
+            ]
         operational.sort(key=lambda a: a.starts_at)
         self._audit(
             actor=actor,
@@ -90,6 +103,9 @@ class AppointmentService:
                 "correlation_id": correlation_id,
                 "role": role,
                 "count": len(operational),
+                "location_id": location_id,
+                "practitioner_id": practitioner_id,
+                "status": status,
             },
         )
         return [
@@ -100,6 +116,8 @@ class AppointmentService:
                 ends_at=a.ends_at,
                 status=a.status,
                 practitioner_id=a.practitioner_id,
+                location_id=a.location_id,
+                appointment_type=a.appointment_type,
             )
             for a in operational
         ]

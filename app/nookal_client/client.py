@@ -89,6 +89,15 @@ def _unwrap_collection(data: Any, preferred_key: str | None = None) -> list[Any]
                 return v
         return None
 
+    candidate_keys = (
+        "patients", "appointments", "cases", "notes", "treatment_notes",
+        "extras", "locations", "practitioners", "types", "appointment_types",
+        "classes", "class_types", "participants", "redemptions", "files",
+        "invoices", "entries", "payments", "credits", "discounts",
+        "refunds", "adjustments", "waiting_list", "waitinglist",
+        "availabilities", "items", "records",
+    )
+
     # 1. If data has a 'results' container (official Nookal shape: {"api_call": "...", "results": {...}})
     results_container = _find_in_dict(data, "results")
     if results_container is not None:
@@ -99,7 +108,7 @@ def _unwrap_collection(data: Any, preferred_key: str | None = None) -> list[Any]
                     inner = _as_record_list(preferred_val)
                     if inner is not None:
                         return inner
-            for candidate in ("patients", "appointments", "availabilities", "items", "records"):
+            for candidate in candidate_keys:
                 cand_val = _find_in_dict(results_container, candidate)
                 if cand_val is not None:
                     inner = _as_record_list(cand_val)
@@ -122,7 +131,7 @@ def _unwrap_collection(data: Any, preferred_key: str | None = None) -> list[Any]
                 return rec_list
 
     # 3. Check candidate keys directly on data
-    for candidate in ("patients", "appointments", "availabilities", "items", "records", "data"):
+    for candidate in candidate_keys + ("data",):
         cand_val = _find_in_dict(data, candidate)
         if cand_val is not None:
             if isinstance(cand_val, Mapping) and candidate == "data":
@@ -139,24 +148,30 @@ def _unwrap_collection(data: Any, preferred_key: str | None = None) -> list[Any]
     return []
 
 
+# --- Documented Nookal Entities ---
+
 @dataclass(frozen=True)
 class PatientRef:
-    """
-    Minimal patient handle for automation.
-
-    Optional demographic fields support mock/dashboard filtering only —
-    not clinical content. Existing call sites that pass only patient_id
-    (+ phone/email/display_name) remain valid.
-    """
-
     patient_id: str
+    first_name: str | None = None
+    middle_name: str | None = None
+    last_name: str | None = None
+    nickname: str | None = None
     phone: str | None = None
     email: str | None = None
-    display_name: str | None = None  # staff UI only; never put in audit metadata
+    display_name: str | None = None
     date_of_birth: date | None = None
+    gender: str | None = None
     suburb: str | None = None
+    address: Mapping[str, Any] | str | None = None
+    postal_address: Mapping[str, Any] | str | None = None
+    online_code: str | None = None
+    deceased: bool = False
     referrer_id: str | None = None
     last_appointment_date: date | None = None
+    date_created: str | None = None
+    date_modified: str | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
 
 @dataclass(frozen=True)
@@ -168,9 +183,161 @@ class Appointment:
     status: str | None = None
     location_id: str | None = None
     practitioner_id: str | None = None
+    type_id: str | None = None
+    appointment_type: str | None = None
+    notes: str | None = None
+    arrived: bool = False
+    dna: bool = False
+    cancelled: bool = False
+    cancellation_date: str | None = None
+    email_reminder_sent: bool = False
+    invoice_generated: bool = False
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
 
+@dataclass(frozen=True)
+class CaseRef:
+    case_id: str
+    patient_id: str
+    case_name: str | None = None
+    case_number: str | None = None
+    status: str | None = None
+    date_created: str | None = None
+    date_modified: str | None = None
+    closed_date: str | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class TreatmentNote:
+    note_id: str
+    patient_id: str
+    case_id: str | None = None
+    practitioner_id: str | None = None
+    date: datetime | str | None = None
+    notes: str | None = None
+    appointment_id: str | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class PatientExtra:
+    extra_id: str
+    name: str
+    field_type: str | None = None
+    options: list[str] = field(default_factory=list)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class Location:
+    location_id: str
+    name: str
+    address: str | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class Practitioner:
+    practitioner_id: str
+    first_name: str | None = None
+    last_name: str | None = None
+    speciality: str | None = None
+    title: str | None = None
+    email: str | None = None
+    locations: list[str] = field(default_factory=list)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class AppointmentType:
+    type_id: str
+    name: str
+    description: str | None = None
+    duration: int | None = None
+    price: float | None = None
+    has_tax: bool = False
+    type: str | None = None
+    locations: list[str] = field(default_factory=list)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class ClassType:
+    class_id: str
+    name: str
+    description: str | None = None
+    duration: int | None = None
+    price: float | None = None
+    locations: list[str] = field(default_factory=list)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class ClassParticipant:
+    participant_id: str
+    class_id: str
+    patient_id: str | None = None
+    status: str | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class PatientFile:
+    file_id: str
+    patient_id: str
+    name: str
+    file_type: str | None = None
+    date_added: str | None = None
+    size: int | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class InvoiceEntry:
+    entry_id: str
+    invoice_id: str | None = None
+    item_id: str | None = None
+    description: str | None = None
+    price: float | None = None
+    quantity: float | None = None
+    tax: float | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class Invoice:
+    invoice_id: str
+    patient_id: str
+    date: str | None = None
+    total: float | None = None
+    status: str | None = None
+    void: bool = False
+    expanded: bool = False
+    entries: list[InvoiceEntry] = field(default_factory=list)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class Redemption:
+    redemption_id: str
+    patient_id: str | None = None
+    item_type: str | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class WaitingListEntry:
+    entry_id: str
+    patient_id: str | None = None
+    location_id: str | None = None
+    practitioner_id: str | None = None
+    date_added: str | None = None
+    notes: str | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+
+# Legacy test compatibility containers (kept strictly for synthetic test fixture support)
 @dataclass(frozen=True)
 class Referrer:
     referrer_id: str
@@ -188,25 +355,50 @@ class DocumentMeta:
 
 @dataclass(frozen=True)
 class Referral:
-    """
-    Clinic-side synthetic referral for mock/tests only.
-
-    This is NOT a claim about Nookal's real referral resource schema.
-    Live HttpNookalClient does not implement referral endpoints until
-    official docs are confirmed.
-    """
-
     referral_id: str
     patient_id: str
     referrer_id: str
     recorded_on: date
-    notes_ref: str | None = None  # opaque id/ref only — never clinical free text here
+    notes_ref: str | None = None
 
 
 class NookalClient(ABC):
-    """Shared interface for live + mock clients."""
+    """Shared interface for live + mock Nookal clients based strictly on documented v2 APIs."""
 
-    # --- reads ---
+    # --- Patients ---
+
+    @abstractmethod
+    def get_patients(
+        self,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+        deceased: int | None = None,
+    ) -> list[PatientRef]:
+        ...
+
+    @abstractmethod
+    def search_patients(
+        self,
+        *,
+        patient_id: str | None = None,
+        online_code: str | None = None,
+        date_created: str | None = None,
+        email: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        date_of_birth: str | None = None,
+        fuzzy_search: str | None = None,
+        suburb: str | None = None,
+        age_min: int | None = None,
+        age_max: int | None = None,
+        appointment_from: date | None = None,
+        appointment_to: date | None = None,
+        referrer_id: str | None = None,
+        deceased: int | None = None,
+    ) -> list[PatientRef]:
+        ...
 
     @abstractmethod
     def get_patient(self, patient_id: str) -> PatientRef:
@@ -216,6 +408,84 @@ class NookalClient(ABC):
     def find_patient_by_phone(self, phone: str) -> list[PatientRef]:
         ...
 
+    # --- Cases ---
+
+    @abstractmethod
+    def get_cases(
+        self,
+        patient_id: str,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+    ) -> list[CaseRef]:
+        ...
+
+    @abstractmethod
+    def get_all_cases(
+        self,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+    ) -> list[CaseRef]:
+        ...
+
+    # --- Treatment Notes ---
+
+    @abstractmethod
+    def get_treatment_notes(
+        self,
+        patient_id: str,
+        *,
+        page: int = 1,
+        page_length: int = 100,
+        last_modified: str | None = None,
+    ) -> list[TreatmentNote]:
+        ...
+
+    @abstractmethod
+    def get_all_treatment_notes(
+        self,
+        *,
+        page: int = 1,
+        page_length: int = 50,
+        last_modified: str | None = None,
+        practitioner_id: str | None = None,
+    ) -> list[TreatmentNote]:
+        ...
+
+    @abstractmethod
+    def add_treatment_note(
+        self,
+        *,
+        patient_id: str,
+        case_id: str,
+        practitioner_id: str,
+        date: str | datetime,
+        notes: str,
+        appt_id: str | None = None,
+    ) -> TreatmentNote:
+        ...
+
+    # --- Extras ---
+
+    @abstractmethod
+    def get_extras(self) -> list[PatientExtra]:
+        ...
+
+    @abstractmethod
+    def add_patient_extra(
+        self,
+        *,
+        patient_id: str,
+        extra_id: str,
+        value: str,
+    ) -> bool:
+        ...
+
+    # --- Appointments ---
+
     @abstractmethod
     def list_appointments(
         self,
@@ -224,6 +494,16 @@ class NookalClient(ABC):
         date_from: date | None = None,
         date_to: date | None = None,
         patient_id: str | None = None,
+        location_id: str | None = None,
+        practitioner_id: str | None = None,
+        appt_status: str | None = None,
+        time_from: str | None = None,
+        time_to: str | None = None,
+        service_id: str | None = None,
+        class_id: str | None = None,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
     ) -> list[Appointment]:
         ...
 
@@ -232,35 +512,8 @@ class NookalClient(ABC):
         ...
 
     @abstractmethod
-    def search_patients(
-        self,
-        *,
-        suburb: str | None = None,
-        age_min: int | None = None,
-        age_max: int | None = None,
-        appointment_from: date | None = None,
-        appointment_to: date | None = None,
-        referrer_id: str | None = None,
-    ) -> list[PatientRef]:
+    def create_appointment(self, payload: Mapping[str, Any]) -> Appointment:
         ...
-
-    @abstractmethod
-    def list_referrers(self) -> list[Referrer]:
-        ...
-
-    @abstractmethod
-    def get_appointment_availabilities(
-        self,
-        *,
-        location_id: str | None = None,
-        practitioner_id: str | None = None,
-        date_from: date | None = None,
-        date_to: date | None = None,
-        appointment_type_id: str | None = None,
-    ) -> list[Mapping[str, Any]]:
-        ...
-
-    # --- writes (kill-switch checked; patient-facing flows still go via approval) ---
 
     @abstractmethod
     def update_appointment(
@@ -274,15 +527,11 @@ class NookalClient(ABC):
         ...
 
     @abstractmethod
-    def create_appointment(self, payload: Mapping[str, Any]) -> Appointment:
-        ...
-
-    @abstractmethod
     def cancel_appointment(
         self,
         appointment_id: str,
         *,
-        patient_id: str | None = None,
+        patient_id: str,
     ) -> Appointment:
         ...
 
@@ -301,18 +550,179 @@ class NookalClient(ABC):
         ...
 
     @abstractmethod
-    def save_document(
+    def get_appointment_availabilities(
         self,
-        patient_id: str,
         *,
-        title: str,
-        content: bytes,
-        content_type: str = "application/pdf",
-    ) -> DocumentMeta:
+        location_id: str | None = None,
+        practitioner_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        appointment_type_id: str | None = None,
+    ) -> list[Mapping[str, Any]]:
         ...
 
     @abstractmethod
-    def upsert_referrer(self, payload: Mapping[str, Any]) -> Referrer:
+    def get_class_availabilities(
+        self,
+        *,
+        location_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        class_id: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        ...
+
+    # --- Locations & Practitioners ---
+
+    @abstractmethod
+    def get_locations(self, *, last_modified: str | None = None) -> list[Location]:
+        ...
+
+    @abstractmethod
+    def get_location_logo(self, location_id: str) -> str | None:
+        ...
+
+    @abstractmethod
+    def get_practitioners(
+        self,
+        *,
+        last_modified: str | None = None,
+        include_inactive_practitioners: bool = False,
+    ) -> list[Practitioner]:
+        ...
+
+    @abstractmethod
+    def get_practitioner_photo(self, practitioner_id: str) -> str | None:
+        ...
+
+    # --- Services & Classes ---
+
+    @abstractmethod
+    def get_appointment_types(self) -> list[AppointmentType]:
+        ...
+
+    @abstractmethod
+    def get_class_types(self) -> list[ClassType]:
+        ...
+
+    @abstractmethod
+    def get_class_participants(
+        self,
+        class_id: str,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+    ) -> list[ClassParticipant]:
+        ...
+
+    @abstractmethod
+    def get_class_redemptions(self) -> list[Redemption]:
+        ...
+
+    @abstractmethod
+    def get_service_redemptions(self) -> list[Redemption]:
+        ...
+
+    @abstractmethod
+    def get_waiting_list(self) -> list[WaitingListEntry]:
+        ...
+
+    # --- Documents ---
+
+    @abstractmethod
+    def get_patient_files(
+        self,
+        patient_id: str,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+    ) -> list[PatientFile]:
+        ...
+
+    @abstractmethod
+    def get_file_url(self, patient_id: str, file_id: str) -> str:
+        ...
+
+    @abstractmethod
+    def upload_file(
+        self,
+        *,
+        patient_id: str,
+        name: str,
+        extension: str,
+        file_type: str,
+        file_path: str,
+        case_id: str | None = None,
+        date_added: str | None = None,
+    ) -> tuple[str, str]:
+        ...
+
+    @abstractmethod
+    def set_file_active(self, *, patient_id: str, file_id: str) -> bool:
+        ...
+
+    @abstractmethod
+    def upload_patient_document(
+        self,
+        *,
+        patient_id: str,
+        name: str,
+        extension: str,
+        file_type: str,
+        content: bytes,
+        case_id: str | None = None,
+        date_added: str | None = None,
+    ) -> PatientFile:
+        ...
+
+    # --- Invoices ---
+
+    @abstractmethod
+    def get_invoice(self, invoice_id: str, *, void: int | None = None) -> Invoice:
+        ...
+
+    @abstractmethod
+    def get_invoices(
+        self,
+        patient_id: str,
+        *,
+        last_modified: str | None = None,
+        void: int | None = None,
+        expanded: int | None = None,
+    ) -> list[Invoice]:
+        ...
+
+    @abstractmethod
+    def get_invoice_entries(
+        self,
+        *,
+        invoice_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        lastmodified_date_from: date | None = None,
+        lastmodified_date_to: date | None = None,
+    ) -> list[InvoiceEntry]:
+        ...
+
+    @abstractmethod
+    def get_invoice_credits(self, **params: Any) -> list[Mapping[str, Any]]:
+        ...
+
+    @abstractmethod
+    def get_invoice_discounts(self, **params: Any) -> list[Mapping[str, Any]]:
+        ...
+
+    @abstractmethod
+    def get_invoice_payments(self, **params: Any) -> list[Mapping[str, Any]]:
+        ...
+
+    @abstractmethod
+    def get_invoice_refunds(self, **params: Any) -> list[Mapping[str, Any]]:
+        ...
+
+    @abstractmethod
+    def get_invoice_adjustments(self, **params: Any) -> list[Mapping[str, Any]]:
         ...
 
 
@@ -365,10 +775,7 @@ class HttpNookalClient(NookalClient):
             self._http.headers.update(self._default_headers())
 
     def _default_headers(self) -> dict[str, str]:
-        """
-        Headers for Nookal API requests.
-        Authentication is via query parameter (?api_key=), NOT Authorization header.
-        """
+        """Authentication is via query parameter (?api_key=), NOT Authorization header."""
         return {"Accept": "application/json"}
 
     def close(self) -> None:
@@ -411,7 +818,6 @@ class HttpNookalClient(NookalClient):
                 )
                 raise
 
-        # Centralized query parameter authentication
         req_params = dict(params) if params else {}
         if self._config.api_key and "api_key" not in req_params:
             req_params["api_key"] = self._config.api_key
@@ -444,7 +850,6 @@ class HttpNookalClient(NookalClient):
             except NookalServerError as exc:
                 last_error = exc
                 if attempt >= self._config.max_retries or is_write:
-                    # Do not blindly retry non-idempotent writes
                     break
                 self._backoff(attempt)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
@@ -504,7 +909,6 @@ class HttpNookalClient(NookalClient):
         except ValueError as exc:
             raise NookalError(f"non-JSON response on {action}") from exc
 
-        # Handle Nookal envelope: {"status": "...", "data": ..., "details": ...}
         if isinstance(payload, Mapping):
             nookal_status = str(payload.get("status", "")).lower()
             if nookal_status in ("failure", "error"):
@@ -527,167 +931,102 @@ class HttpNookalClient(NookalClient):
 
         return payload
 
-    # --- reads ---
+    # --- Validation helpers ---
 
-    def get_patient(self, patient_id: str) -> PatientRef:
-        """
-        Fetch patient by patient_id using official /searchPatients endpoint.
-        """
-        data = self._request(
-            "GET",
-            "/searchPatients",
-            action="get_patient",
-            target_type="patient_record",
-            target_id=patient_id,
-            params={"patient_id": patient_id},
-        )
-        rows = _unwrap_collection(data, "patients")
-        if not rows:
-            raise NookalNotFound(f"get_patient: patient {patient_id} not found")
+    @staticmethod
+    def _validate_pagination(page: int, page_length: int, max_length: int = 200) -> None:
+        if page < 1:
+            raise NookalValidationError("page must be > 0")
+        if page_length < 1 or page_length > max_length:
+            raise NookalValidationError(f"page_length must be between 1 and {max_length}")
 
-        matched_ids: set[str] = set()
-        for r in rows:
-            if isinstance(r, Mapping):
-                pid = r.get("ID") or r.get("id") or r.get("patient_id") or r.get("patientID") or r.get("PatientID") or r.get("patientId") or r.get("PatientId")
-                if pid:
-                    matched_ids.add(str(pid))
+    # --- Patients ---
 
-        if len(matched_ids) > 1:
-            raise NookalValidationError(f"ambiguous patient matches for {patient_id}")
-
-        matching = next(
-            (
-                r
-                for r in rows
-                if isinstance(r, Mapping)
-                and str(r.get("ID") or r.get("id") or r.get("patient_id") or r.get("patientID") or r.get("PatientID") or r.get("patientId") or r.get("PatientId"))
-                == str(patient_id)
-            ),
-            rows[0],
-        )
-        return self._parse_patient(matching)
-
-    def find_patient_by_phone(self, phone: str) -> list[PatientRef]:
-        """
-        Lookup patient by phone using official /searchPatients?fuzzy_search=.
-        Filters client-side for exact phone match. Audit target is 'phone_lookup' (no PII).
-        """
-        data = self._request(
-            "GET",
-            "/searchPatients",
-            action="find_patient_by_phone",
-            target_type="patient_record",
-            target_id="phone_lookup",
-            params={"fuzzy_search": phone},
-        )
-        rows = _unwrap_collection(data, "patients")
-        patients = [self._parse_patient(row) for row in rows if isinstance(row, Mapping)]
-        clean_phone = re.sub(r"[^\d+]", "", phone)
-        matched = []
-        for p in patients:
-            if p.phone:
-                p_clean = re.sub(r"[^\d+]", "", p.phone)
-                if p.phone == phone or (clean_phone and p_clean == clean_phone):
-                    matched.append(p)
-        return matched
-
-    def list_appointments(
+    def get_patients(
         self,
         *,
-        on_date: date | None = None,
-        date_from: date | None = None,
-        date_to: date | None = None,
-        patient_id: str | None = None,
-    ) -> list[Appointment]:
-        """
-        Retrieve appointments using official /getAppointments endpoint.
-        Maps on_date to matching date_from and date_to parameters.
-        """
-        params: dict[str, Any] = {
-            "page": 1,
-            "page_length": 200,
-        }
-        if on_date:
-            params["date_from"] = on_date.isoformat()
-            params["date_to"] = on_date.isoformat()
-        else:
-            if date_from:
-                params["date_from"] = date_from.isoformat()
-            if date_to:
-                params["date_to"] = date_to.isoformat()
-        if patient_id:
-            params["patient_id"] = patient_id
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+        deceased: int | None = None,
+    ) -> list[PatientRef]:
+        self._validate_pagination(page, page_length, 200)
+        params: dict[str, Any] = {"page": page, "page_length": page_length}
+        if last_modified:
+            params["last_modified"] = last_modified
+        if deceased is not None:
+            if deceased not in (0, 1):
+                raise NookalValidationError("deceased must be 0, 1, or None")
+            params["deceased"] = deceased
 
         data = self._request(
             "GET",
-            "/getAppointments",
-            action="list_appointments",
-            target_type="appointment",
-            target_id=patient_id or (on_date.isoformat() if on_date else "range"),
+            "/getPatients",
+            action="get_patients",
+            target_type="patient_record",
+            target_id=f"page_{page}",
             params=params,
         )
-        rows = _unwrap_collection(data, "appointments")
-        return [self._parse_appointment(row) for row in rows if isinstance(row, Mapping)]
-
-    def get_appointment(self, appointment_id: str) -> Appointment:
-        """
-        Retrieve single appointment by ID using official /getAppointments endpoint.
-        """
-        params: dict[str, Any] = {
-            "page_length": 200,
-        }
-        data = self._request(
-            "GET",
-            "/getAppointments",
-            action="get_appointment",
-            target_type="appointment",
-            target_id=appointment_id,
-            params=params,
-        )
-        rows = _unwrap_collection(data, "appointments")
-        for row in rows:
-            if isinstance(row, Mapping):
-                aid = (
-                    row.get("ID")
-                    or row.get("id")
-                    or row.get("appointment_id")
-                    or row.get("appointmentID")
-                    or row.get("AppointmentID")
-                    or row.get("appointmentId")
-                    or row.get("AppointmentId")
-                )
-                if aid and str(aid) == str(appointment_id):
-                    return self._parse_appointment(row)
-        raise NookalNotFound(f"get_appointment: appointment {appointment_id} not found")
+        rows = _unwrap_collection(data, "patients")
+        return [self._parse_patient(r) for r in rows if isinstance(r, Mapping)]
 
     def search_patients(
         self,
         *,
+        patient_id: str | None = None,
+        online_code: str | None = None,
+        date_created: str | None = None,
+        email: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        date_of_birth: str | None = None,
+        fuzzy_search: str | None = None,
         suburb: str | None = None,
         age_min: int | None = None,
         age_max: int | None = None,
         appointment_from: date | None = None,
         appointment_to: date | None = None,
         referrer_id: str | None = None,
+        deceased: int | None = None,
     ) -> list[PatientRef]:
-        """
-        Search patients using official /getPatients endpoint and client-side demographic filters.
-        """
-        params: dict[str, Any] = {
-            "page": 1,
-            "page_length": 200,
-        }
-        data = self._request(
-            "GET",
-            "/getPatients",
-            action="search_patients",
-            target_type="patient_record",
-            target_id="search",
-            params=params,
-        )
-        rows = _unwrap_collection(data, "patients")
-        results = [self._parse_patient(row) for row in rows if isinstance(row, Mapping)]
+        params: dict[str, Any] = {}
+        if patient_id:
+            params["patient_id"] = patient_id
+        if online_code:
+            params["online_code"] = online_code
+        if date_created:
+            params["date_created"] = date_created
+        if email:
+            params["email"] = email
+        if first_name:
+            params["first_name"] = first_name
+        if last_name:
+            params["last_name"] = last_name
+        if date_of_birth:
+            params["date_of_birth"] = date_of_birth
+        if fuzzy_search:
+            params["fuzzy_search"] = fuzzy_search
 
+        # If search parameters are given, query /searchPatients
+        if params:
+            data = self._request(
+                "GET",
+                "/searchPatients",
+                action="search_patients",
+                target_type="patient_record",
+                target_id="search",
+                params=params,
+            )
+            rows = _unwrap_collection(data, "patients")
+            results = [self._parse_patient(row) for row in rows if isinstance(row, Mapping)]
+        else:
+            # General directory query uses /getPatients
+            results = self.get_patients(page=1, page_length=200, deceased=deceased)
+
+        if deceased is not None:
+            results = [p for p in results if p.deceased == bool(deceased)]
+
+        # Client-side demographic filtering
         if suburb is not None:
             needle = suburb.casefold()
             results = [p for p in results if (p.suburb or "").casefold() == needle]
@@ -725,58 +1064,364 @@ class HttpNookalClient(NookalClient):
         results.sort(key=lambda p: p.patient_id)
         return results
 
-    def get_appointment_availabilities(
+    def get_patient(self, patient_id: str) -> PatientRef:
+        data = self._request(
+            "GET",
+            "/searchPatients",
+            action="get_patient",
+            target_type="patient_record",
+            target_id=patient_id,
+            params={"patient_id": patient_id},
+        )
+        rows = _unwrap_collection(data, "patients")
+        if not rows:
+            raise NookalNotFound(f"get_patient: patient {patient_id} not found")
+
+        matched_ids: set[str] = set()
+        for r in rows:
+            if isinstance(r, Mapping):
+                pid = r.get("ID") or r.get("id") or r.get("patient_id") or r.get("patientID") or r.get("PatientID") or r.get("patientId") or r.get("PatientId")
+                if pid:
+                    matched_ids.add(str(pid))
+
+        if len(matched_ids) > 1:
+            raise NookalValidationError(f"ambiguous patient matches for {patient_id}")
+
+        matching = next(
+            (
+                r
+                for r in rows
+                if isinstance(r, Mapping)
+                and str(r.get("ID") or r.get("id") or r.get("patient_id") or r.get("patientID") or r.get("PatientID") or r.get("patientId") or r.get("PatientId"))
+                == str(patient_id)
+            ),
+            rows[0],
+        )
+        return self._parse_patient(matching)
+
+    def find_patient_by_phone(self, phone: str) -> list[PatientRef]:
+        clean_phone = re.sub(r"[^\d+]", "", phone)
+        data = self._request(
+            "GET",
+            "/searchPatients",
+            action="find_patient_by_phone",
+            target_type="patient_record",
+            target_id="phone_lookup",
+            params={"fuzzy_search": phone},
+        )
+        rows = _unwrap_collection(data, "patients")
+        patients = [self._parse_patient(row) for row in rows if isinstance(row, Mapping)]
+        matched = []
+        for p in patients:
+            if p.phone:
+                p_clean = re.sub(r"[^\d+]", "", p.phone)
+                if p.phone == phone or (clean_phone and p_clean == clean_phone):
+                    matched.append(p)
+        return matched
+
+    # --- Cases ---
+
+    def get_cases(
+        self,
+        patient_id: str,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+    ) -> list[CaseRef]:
+        if not patient_id:
+            raise NookalValidationError("patient_id is required for get_cases")
+        self._validate_pagination(page, page_length, 200)
+        params: dict[str, Any] = {
+            "patient_id": patient_id,
+            "page": page,
+            "page_length": page_length,
+        }
+        if last_modified:
+            params["last_modified"] = last_modified
+
+        data = self._request(
+            "GET",
+            "/getCases",
+            action="get_cases",
+            target_type="patient_record",
+            target_id=patient_id,
+            params=params,
+        )
+        rows = _unwrap_collection(data, "cases")
+        return [self._parse_case(r) for r in rows if isinstance(r, Mapping)]
+
+    def get_all_cases(
         self,
         *,
-        location_id: str | None = None,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+    ) -> list[CaseRef]:
+        self._validate_pagination(page, page_length, 200)
+        params: dict[str, Any] = {"page": page, "page_length": page_length}
+        if last_modified:
+            params["last_modified"] = last_modified
+
+        data = self._request(
+            "GET",
+            "/getAllCases",
+            action="get_all_cases",
+            target_type="patient_record",
+            target_id=f"page_{page}",
+            params=params,
+        )
+        rows = _unwrap_collection(data, "cases")
+        return [self._parse_case(r) for r in rows if isinstance(r, Mapping)]
+
+    # --- Treatment Notes ---
+
+    def get_treatment_notes(
+        self,
+        patient_id: str,
+        *,
+        page: int = 1,
+        page_length: int = 100,
+        last_modified: str | None = None,
+    ) -> list[TreatmentNote]:
+        if not patient_id:
+            raise NookalValidationError("patient_id is required for get_treatment_notes")
+        self._validate_pagination(page, page_length, 100)
+        params: dict[str, Any] = {
+            "patient_id": patient_id,
+            "page": page,
+            "page_length": page_length,
+        }
+        if last_modified:
+            params["last_modified"] = last_modified
+
+        data = self._request(
+            "GET",
+            "/getTreatmentNotes",
+            action="get_treatment_notes",
+            target_type="patient_record",
+            target_id=patient_id,
+            params=params,
+        )
+        rows = _unwrap_collection(data, "notes")
+        return [self._parse_treatment_note(r) for r in rows if isinstance(r, Mapping)]
+
+    def get_all_treatment_notes(
+        self,
+        *,
+        page: int = 1,
+        page_length: int = 50,
+        last_modified: str | None = None,
         practitioner_id: str | None = None,
+    ) -> list[TreatmentNote]:
+        self._validate_pagination(page, page_length, 50)
+        params: dict[str, Any] = {"page": page, "page_length": page_length}
+        if last_modified:
+            params["last_modified"] = last_modified
+        if practitioner_id:
+            params["practitioner_id"] = practitioner_id
+
+        data = self._request(
+            "GET",
+            "/getAllTreatmentNotes",
+            action="get_all_treatment_notes",
+            target_type="patient_record",
+            target_id=f"page_{page}",
+            params=params,
+        )
+        rows = _unwrap_collection(data, "notes")
+        return [self._parse_treatment_note(r) for r in rows if isinstance(r, Mapping)]
+
+    def add_treatment_note(
+        self,
+        *,
+        patient_id: str,
+        case_id: str,
+        practitioner_id: str,
+        date: str | datetime,
+        notes: str,
+        appt_id: str | None = None,
+    ) -> TreatmentNote:
+        if not patient_id or not case_id or not practitioner_id or not notes:
+            raise NookalValidationError("add_treatment_note requires patient_id, case_id, practitioner_id, date, and notes")
+
+        if isinstance(date, datetime):
+            date_str = date.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            date_str = str(date).strip()
+            # Verify format YYYY-MM-DD HH:MM:SS
+            try:
+                datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                raise NookalValidationError("add_treatment_note date must be in format YYYY-MM-DD HH:MM:SS")
+
+        body: dict[str, Any] = {
+            "patient_id": patient_id,
+            "case_id": case_id,
+            "practitioner_id": practitioner_id,
+            "date": date_str,
+            "notes": notes,
+        }
+        if appt_id:
+            body["appt_id"] = appt_id
+
+        data = self._request(
+            "POST",
+            "/addTreatmentNote",
+            action="add_treatment_note",
+            target_type="patient_record",
+            target_id=patient_id,
+            is_write=True,
+            json_body=body,
+        )
+        if isinstance(data, Mapping):
+            return self._parse_treatment_note(data)
+        return TreatmentNote(
+            note_id="new",
+            patient_id=patient_id,
+            case_id=case_id,
+            practitioner_id=practitioner_id,
+            date=date_str,
+            notes=notes,
+            appointment_id=appt_id,
+        )
+
+    # --- Extras ---
+
+    def get_extras(self) -> list[PatientExtra]:
+        data = self._request(
+            "GET",
+            "/getExtras",
+            action="get_extras",
+            target_type="patient_record",
+            target_id="extras",
+        )
+        rows = _unwrap_collection(data, "extras")
+        return [self._parse_extra(r) for r in rows if isinstance(r, Mapping)]
+
+    def add_patient_extra(
+        self,
+        *,
+        patient_id: str,
+        extra_id: str,
+        value: str,
+    ) -> bool:
+        if not patient_id or not extra_id:
+            raise NookalValidationError("add_patient_extra requires patient_id and extra_id")
+        try:
+            if int(patient_id) <= 0:
+                raise NookalValidationError("patient_id must be > 0")
+        except ValueError:
+            pass
+
+        body = {
+            "patient_id": patient_id,
+            "extra_id": extra_id,
+            "value": str(value),
+        }
+        self._request(
+            "POST",
+            "/addPatientExtra",
+            action="add_patient_extra",
+            target_type="patient_record",
+            target_id=patient_id,
+            is_write=True,
+            json_body=body,
+        )
+        return True
+
+    # --- Appointments ---
+
+    def list_appointments(
+        self,
+        *,
+        on_date: date | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
-        appointment_type_id: str | None = None,
-    ) -> list[Mapping[str, Any]]:
-        """
-        Fetch practitioner availabilities using official /getAppointmentAvailabilities endpoint.
-        """
-        params: dict[str, Any] = {}
+        patient_id: str | None = None,
+        location_id: str | None = None,
+        practitioner_id: str | None = None,
+        appt_status: str | None = None,
+        time_from: str | None = None,
+        time_to: str | None = None,
+        service_id: str | None = None,
+        class_id: str | None = None,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+    ) -> list[Appointment]:
+        self._validate_pagination(page, page_length, 200)
+        params: dict[str, Any] = {
+            "page": page,
+            "page_length": page_length,
+        }
+        if on_date:
+            params["date_from"] = on_date.strftime("%Y-%m-%d")
+            params["date_to"] = on_date.strftime("%Y-%m-%d")
+        else:
+            if date_from:
+                params["date_from"] = date_from.strftime("%Y-%m-%d")
+            if date_to:
+                params["date_to"] = date_to.strftime("%Y-%m-%d")
+
+        if patient_id:
+            params["patient_id"] = patient_id
         if location_id:
             params["location_id"] = location_id
         if practitioner_id:
             params["practitioner_id"] = practitioner_id
-        if date_from:
-            params["date_from"] = date_from.isoformat()
-        if date_to:
-            params["date_to"] = date_to.isoformat()
-        if appointment_type_id:
-            params["appointment_type_id"] = appointment_type_id
+        if appt_status:
+            params["appt_status"] = appt_status
+        if time_from:
+            params["time_from"] = time_from
+        if time_to:
+            params["time_to"] = time_to
+        if service_id:
+            params["service_id"] = service_id
+        if class_id:
+            params["class_id"] = class_id
+        if last_modified:
+            params["last_modified"] = last_modified
 
         data = self._request(
             "GET",
-            "/getAppointmentAvailabilities",
-            action="get_appointment_availabilities",
+            "/getAppointments",
+            action="list_appointments",
             target_type="appointment",
-            target_id="availabilities",
+            target_id=patient_id or (on_date.isoformat() if on_date else "range"),
             params=params,
         )
-        rows = _unwrap_collection(data, "availabilities")
-        return [dict(r) for r in rows if isinstance(r, Mapping)]
+        rows = _unwrap_collection(data, "appointments")
+        return [self._parse_appointment(row) for row in rows if isinstance(row, Mapping)]
 
-    def list_referrers(self) -> list[Referrer]:
-        """
-        Unsupported on live client: Nookal API v2 does not expose a public referrer endpoint.
-        """
-        raise NotImplementedError(
-            "list_referrers: Nookal API v2 does not expose a public referrer endpoint; see documentation"
+    def get_appointment(self, appointment_id: str) -> Appointment:
+        params: dict[str, Any] = {"page_length": 200}
+        data = self._request(
+            "GET",
+            "/getAppointments",
+            action="get_appointment",
+            target_type="appointment",
+            target_id=appointment_id,
+            params=params,
         )
-
-    # --- writes ---
+        rows = _unwrap_collection(data, "appointments")
+        for row in rows:
+            if isinstance(row, Mapping):
+                aid = (
+                    row.get("ID")
+                    or row.get("id")
+                    or row.get("appointment_id")
+                    or row.get("appointmentID")
+                    or row.get("AppointmentID")
+                    or row.get("appointmentId")
+                    or row.get("AppointmentId")
+                )
+                if aid and str(aid) == str(appointment_id):
+                    return self._parse_appointment(row)
+        raise NookalNotFound(f"get_appointment: appointment {appointment_id} not found")
 
     def create_appointment(self, payload: Mapping[str, Any]) -> Appointment:
-        """
-        Create appointment booking using official /addAppointmentBooking endpoint.
-        Validates required fields before sending request.
-        """
         body: dict[str, Any] = {}
-
         starts = payload.get("starts_at")
         if starts:
             if isinstance(starts, str):
@@ -785,7 +1430,7 @@ class HttpNookalClient(NookalClient):
                 except ValueError:
                     pass
             if isinstance(starts, datetime):
-                body.setdefault("appointment_date", starts.date().isoformat())
+                body.setdefault("appointment_date", starts.date().strftime("%Y-%m-%d"))
                 body.setdefault("start_time", starts.time().strftime("%H:%M:%S"))
 
         field_mapping = {
@@ -798,7 +1443,6 @@ class HttpNookalClient(NookalClient):
             "notes": ("notes",),
             "allow_overlap_bookings": ("allow_overlap_bookings",),
         }
-
         for target_key, sources in field_mapping.items():
             for src in sources:
                 if src in payload and payload[src] is not None:
@@ -818,6 +1462,20 @@ class HttpNookalClient(NookalClient):
             raise NookalValidationError(
                 f"create_appointment missing required fields: {', '.join(missing)}"
             )
+
+        # Validate date and time formats
+        try:
+            datetime.strptime(str(body["appointment_date"]), "%Y-%m-%d")
+        except ValueError:
+            raise NookalValidationError("appointment_date must be in format YYYY-MM-DD")
+        try:
+            t_str = str(body["start_time"]).strip()
+            if len(t_str) == 5:
+                t_str = f"{t_str}:00"
+                body["start_time"] = t_str
+            datetime.strptime(t_str, "%H:%M:%S")
+        except ValueError:
+            raise NookalValidationError("start_time must be in format HH:MM:SS")
 
         data = self._request(
             "POST",
@@ -863,34 +1521,27 @@ class HttpNookalClient(NookalClient):
         status: str | None = None,
         **fields: Any,
     ) -> Appointment:
-        """
-        Update appointment booking using official /updateAppointmentBooking endpoint.
-        Uses allowlist of supported Nookal fields.
-        """
         body: dict[str, Any] = {"appointment_id": appointment_id}
         if starts_at is not None:
-            body["appointment_date"] = starts_at.date().isoformat()
+            body["appointment_date"] = starts_at.date().strftime("%Y-%m-%d")
             body["start_time"] = starts_at.time().strftime("%H:%M:%S")
+
+        allowed_statuses = {"Completed", "Pending", "Cancelled", "DNA"}
         if status is not None:
-            body["status"] = status
-            if status == "cancelled":
-                body["cancelled"] = "1"
-            elif status == "dna":
-                body["dna"] = "1"
-            elif status == "arrived":
-                body["arrived"] = "1"
+            norm_status = status.capitalize() if status.lower() not in ("dna",) else "DNA"
+            if norm_status not in allowed_statuses and status not in allowed_statuses:
+                raise NookalValidationError(
+                    f"Invalid status '{status}'. Documented allowed values: Completed, Pending, Cancelled, DNA"
+                )
+            body["status"] = norm_status
 
         allowed_fields = {
+            "location_id",
             "appointment_date",
             "start_time",
-            "end_time",
-            "location_id",
             "practitioner_id",
             "appointment_type_id",
             "notes",
-            "arrived",
-            "dna",
-            "cancelled",
         }
         for k, v in fields.items():
             if k in allowed_fields and v is not None:
@@ -923,15 +1574,14 @@ class HttpNookalClient(NookalClient):
         self,
         appointment_id: str,
         *,
-        patient_id: str | None = None,
+        patient_id: str,
     ) -> Appointment:
-        """
-        Cancel appointment using official /cancelAppointment endpoint.
-        """
-        body: dict[str, Any] = {"appointment_id": appointment_id}
-        if patient_id:
-            body["patient_id"] = patient_id
-
+        if not appointment_id or not patient_id:
+            raise NookalValidationError("cancel_appointment requires both appointment_id and patient_id")
+        body: dict[str, Any] = {
+            "appointment_id": appointment_id,
+            "patient_id": patient_id,
+        }
         data = self._request(
             "POST",
             "/cancelAppointment",
@@ -949,7 +1599,7 @@ class HttpNookalClient(NookalClient):
 
         return Appointment(
             appointment_id=appointment_id,
-            patient_id=str(patient_id or ""),
+            patient_id=str(patient_id),
             starts_at=datetime.now(),
             status="cancelled",
             raw=dict(data) if isinstance(data, Mapping) else {"data": data},
@@ -966,11 +1616,11 @@ class HttpNookalClient(NookalClient):
         appointment_date: str | date,
         cancel_first: bool = False,
     ) -> Appointment:
-        """
-        Rebook appointment using official /rebookAppointment endpoint.
-        """
+        if not appointment_id or not patient_id or not location_id or not start_time or not practitioner_id or not appointment_date:
+            raise NookalValidationError("rebook_appointment missing required fields")
+
         date_str = (
-            appointment_date.isoformat()
+            appointment_date.strftime("%Y-%m-%d")
             if isinstance(appointment_date, date)
             else str(appointment_date)
         )
@@ -1016,33 +1666,540 @@ class HttpNookalClient(NookalClient):
             raw=dict(data) if isinstance(data, Mapping) else {"data": data},
         )
 
-    def save_document(
+    def get_appointment_availabilities(
+        self,
+        *,
+        location_id: str | None = None,
+        practitioner_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        appointment_type_id: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        params: dict[str, Any] = {}
+        if location_id:
+            params["location_id"] = location_id
+        if practitioner_id:
+            params["practitioner_id"] = practitioner_id
+        if date_from:
+            params["date_from"] = date_from.strftime("%Y-%m-%d")
+        if date_to:
+            params["date_to"] = date_to.strftime("%Y-%m-%d")
+        if appointment_type_id:
+            params["appointment_type_id"] = appointment_type_id
+
+        data = self._request(
+            "GET",
+            "/getAppointmentAvailabilities",
+            action="get_appointment_availabilities",
+            target_type="appointment",
+            target_id="availabilities",
+            params=params,
+        )
+        rows = _unwrap_collection(data, "availabilities")
+        return [dict(r) for r in rows if isinstance(r, Mapping)]
+
+    def get_class_availabilities(
+        self,
+        *,
+        location_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        class_id: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        params: dict[str, Any] = {}
+        if location_id:
+            params["location_id"] = location_id
+        if date_from:
+            params["date_from"] = date_from.strftime("%Y-%m-%d")
+        if date_to:
+            params["date_to"] = date_to.strftime("%Y-%m-%d")
+        if class_id:
+            params["class_id"] = class_id
+
+        data = self._request(
+            "GET",
+            "/getClassAvailabilities",
+            action="get_class_availabilities",
+            target_type="appointment",
+            target_id="class_availabilities",
+            params=params,
+        )
+        rows = _unwrap_collection(data, "availabilities")
+        return [dict(r) for r in rows if isinstance(r, Mapping)]
+
+    # --- Locations & Practitioners ---
+
+    def get_locations(self, *, last_modified: str | None = None) -> list[Location]:
+        params: dict[str, Any] = {}
+        if last_modified:
+            params["last_modified"] = last_modified
+        data = self._request(
+            "GET",
+            "/getLocations",
+            action="get_locations",
+            target_type="system",
+            target_id="locations",
+            params=params,
+        )
+        rows = _unwrap_collection(data, "locations")
+        return [self._parse_location(r) for r in rows if isinstance(r, Mapping)]
+
+    def get_location_logo(self, location_id: str) -> str | None:
+        if not location_id:
+            raise NookalValidationError("location_id is required for get_location_logo")
+        data = self._request(
+            "GET",
+            "/getLocationLogo",
+            action="get_location_logo",
+            target_type="system",
+            target_id=location_id,
+            params={"location_id": location_id},
+        )
+        if isinstance(data, Mapping):
+            return data.get("url") or data.get("logo_url") or data.get("logo")
+        if isinstance(data, str):
+            return data
+        return None
+
+    def get_practitioners(
+        self,
+        *,
+        last_modified: str | None = None,
+        include_inactive_practitioners: bool = False,
+    ) -> list[Practitioner]:
+        params: dict[str, Any] = {}
+        if last_modified:
+            params["last_modified"] = last_modified
+        if include_inactive_practitioners:
+            params["include_inactive_practitioners"] = 1
+
+        data = self._request(
+            "GET",
+            "/getPractitioners",
+            action="get_practitioners",
+            target_type="system",
+            target_id="practitioners",
+            params=params,
+        )
+        rows = _unwrap_collection(data, "practitioners")
+        return [self._parse_practitioner(r) for r in rows if isinstance(r, Mapping)]
+
+    def get_practitioner_photo(self, practitioner_id: str) -> str | None:
+        if not practitioner_id:
+            raise NookalValidationError("practitioner_id is required for get_practitioner_photo")
+        data = self._request(
+            "GET",
+            "/getPractitionerPhoto",
+            action="get_practitioner_photo",
+            target_type="system",
+            target_id=practitioner_id,
+            params={"practitioner_id": practitioner_id},
+        )
+        if isinstance(data, Mapping):
+            return data.get("url") or data.get("photo_url") or data.get("photo")
+        if isinstance(data, str):
+            return data
+        return None
+
+    # --- Services & Classes ---
+
+    def get_appointment_types(self) -> list[AppointmentType]:
+        data = self._request(
+            "GET",
+            "/getAppointmentTypes",
+            action="get_appointment_types",
+            target_type="system",
+            target_id="appointment_types",
+        )
+        rows = _unwrap_collection(data, "types")
+        return [self._parse_appointment_type(r) for r in rows if isinstance(r, Mapping)]
+
+    def get_class_types(self) -> list[ClassType]:
+        data = self._request(
+            "GET",
+            "/getClassTypes",
+            action="get_class_types",
+            target_type="system",
+            target_id="class_types",
+        )
+        rows = _unwrap_collection(data, "classes")
+        return [self._parse_class_type(r) for r in rows if isinstance(r, Mapping)]
+
+    def get_class_participants(
+        self,
+        class_id: str,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+    ) -> list[ClassParticipant]:
+        if not class_id:
+            raise NookalValidationError("class_id is required for get_class_participants")
+        self._validate_pagination(page, page_length, 200)
+        params = {"class_id": class_id, "page": page, "page_length": page_length}
+        data = self._request(
+            "GET",
+            "/getClassParticipants",
+            action="get_class_participants",
+            target_type="system",
+            target_id=class_id,
+            params=params,
+        )
+        rows = _unwrap_collection(data, "participants")
+        return [self._parse_class_participant(r) for r in rows if isinstance(r, Mapping)]
+
+    def get_class_redemptions(self) -> list[Redemption]:
+        data = self._request(
+            "GET",
+            "/getClassRedemptions",
+            action="get_class_redemptions",
+            target_type="system",
+            target_id="class_redemptions",
+        )
+        rows = _unwrap_collection(data, "redemptions")
+        return [Redemption(redemption_id=str(r.get("ID") or r.get("id")), patient_id=str(r.get("patientID") or r.get("patient_id") or ""), item_type="class", raw=dict(r)) for r in rows if isinstance(r, Mapping)]
+
+    def get_service_redemptions(self) -> list[Redemption]:
+        data = self._request(
+            "GET",
+            "/getServiceRedemptions",
+            action="get_service_redemptions",
+            target_type="system",
+            target_id="service_redemptions",
+        )
+        rows = _unwrap_collection(data, "redemptions")
+        return [Redemption(redemption_id=str(r.get("ID") or r.get("id")), patient_id=str(r.get("patientID") or r.get("patient_id") or ""), item_type="service", raw=dict(r)) for r in rows if isinstance(r, Mapping)]
+
+    def get_waiting_list(self) -> list[WaitingListEntry]:
+        data = self._request(
+            "GET",
+            "/getWaitingList",
+            action="get_waiting_list",
+            target_type="system",
+            target_id="waiting_list",
+        )
+        rows = _unwrap_collection(data, "waiting_list")
+        return [
+            WaitingListEntry(
+                entry_id=str(r.get("ID") or r.get("id")),
+                patient_id=str(r.get("patientID") or r.get("patient_id") or "") or None,
+                location_id=str(r.get("locationID") or r.get("location_id") or "") or None,
+                practitioner_id=str(r.get("practitionerID") or r.get("practitioner_id") or "") or None,
+                date_added=str(r.get("dateAdded") or r.get("date_added") or "") or None,
+                notes=str(r.get("notes") or "") or None,
+                raw=dict(r),
+            )
+            for r in rows if isinstance(r, Mapping)
+        ]
+
+    # --- Documents ---
+
+    def get_patient_files(
         self,
         patient_id: str,
         *,
-        title: str,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+    ) -> list[PatientFile]:
+        if not patient_id:
+            raise NookalValidationError("patient_id is required for get_patient_files")
+        self._validate_pagination(page, page_length, 200)
+        params: dict[str, Any] = {
+            "patient_id": patient_id,
+            "page": page,
+            "page_length": page_length,
+        }
+        if last_modified:
+            params["last_modified"] = last_modified
+
+        data = self._request(
+            "GET",
+            "/getPatientFiles",
+            action="get_patient_files",
+            target_type="patient_record",
+            target_id=patient_id,
+            params=params,
+        )
+        rows = _unwrap_collection(data, "files")
+        return [self._parse_patient_file(r) for r in rows if isinstance(r, Mapping)]
+
+    def get_file_url(self, patient_id: str, file_id: str) -> str:
+        if not patient_id or not file_id:
+            raise NookalValidationError("patient_id and file_id are required for get_file_url")
+        data = self._request(
+            "GET",
+            "/getFileUrl",
+            action="get_file_url",
+            target_type="patient_record",
+            target_id=f"{patient_id}_{file_id}",
+            params={"patient_id": patient_id, "file_id": file_id},
+        )
+        url = None
+        if isinstance(data, Mapping):
+            url = data.get("url") or data.get("file_url") or data.get("download_url")
+        elif isinstance(data, str):
+            url = data
+        if not url:
+            raise NookalError(f"getFileUrl did not return a valid download URL for file {file_id}")
+        return str(url)
+
+    def upload_file(
+        self,
+        *,
+        patient_id: str,
+        name: str,
+        extension: str,
+        file_type: str,
+        file_path: str,
+        case_id: str | None = None,
+        date_added: str | None = None,
+    ) -> tuple[str, str]:
+        if not patient_id or not name or not extension or not file_type or not file_path:
+            raise NookalValidationError("upload_file missing required metadata fields")
+
+        body: dict[str, Any] = {
+            "patient_id": patient_id,
+            "name": name,
+            "extension": extension.lstrip("."),
+            "file_type": file_type,
+            "file_path": file_path,
+        }
+        if case_id:
+            body["case_id"] = case_id
+        if date_added:
+            body["date_added"] = date_added
+
+        data = self._request(
+            "POST",
+            "/uploadFile",
+            action="upload_file",
+            target_type="patient_record",
+            target_id=patient_id,
+            is_write=True,
+            json_body=body,
+        )
+        if not isinstance(data, Mapping):
+            raise NookalError("uploadFile returned unexpected response shape")
+
+        file_id = str(data.get("file_id") or data.get("fileID") or data.get("id") or data.get("ID") or "")
+        presigned_url = str(data.get("url") or data.get("presigned_url") or data.get("s3_url") or data.get("upload_url") or "")
+        if not file_id or not presigned_url:
+            raise NookalError("uploadFile response missing file_id or presigned S3 upload URL")
+
+        return file_id, presigned_url
+
+    def set_file_active(self, *, patient_id: str, file_id: str) -> bool:
+        if not patient_id or not file_id:
+            raise NookalValidationError("set_file_active requires patient_id and file_id")
+
+        body = {"patient_id": patient_id, "file_id": file_id}
+        self._request(
+            "POST",
+            "/setFileActive",
+            action="set_file_active",
+            target_type="patient_record",
+            target_id=f"{patient_id}_{file_id}",
+            is_write=True,
+            json_body=body,
+        )
+        return True
+
+    def upload_patient_document(
+        self,
+        *,
+        patient_id: str,
+        name: str,
+        extension: str,
+        file_type: str,
         content: bytes,
-        content_type: str = "application/pdf",
-    ) -> DocumentMeta:
+        case_id: str | None = None,
+        date_added: str | None = None,
+    ) -> PatientFile:
         """
-        Unsupported on live client: official Nookal v2 document upload requires a two-step
-        presigned S3 workflow (/uploadFile -> direct S3 upload -> /setFileActive).
+        Complete documented 2-stage Nookal file upload workflow:
+        1. Call /uploadFile to obtain file_id and presigned S3 URL
+        2. Perform direct HTTP PUT of bytes to presigned S3 URL
+        3. Verify S3 HTTP status (200-299)
+        4. Call /setFileActive to confirm activation
+        5. Return populated PatientFile
         """
-        raise NotImplementedError(
-            "save_document: official Nookal v2 document upload requires a two-step presigned "
-            "S3 workflow (/uploadFile -> direct S3 upload -> /setFileActive); "
-            "intentional NotImplementedError until full S3 upload pipeline is configured."
+        if not content:
+            raise NookalValidationError("document content cannot be empty")
+
+        clean_ext = extension.lstrip(".")
+        file_path_name = f"{name}.{clean_ext}"
+
+        file_id, presigned_url = self.upload_file(
+            patient_id=patient_id,
+            name=name,
+            extension=clean_ext,
+            file_type=file_type,
+            file_path=file_path_name,
+            case_id=case_id,
+            date_added=date_added,
         )
 
-    def upsert_referrer(self, payload: Mapping[str, Any]) -> Referrer:
-        """
-        Unsupported on live client: Nookal API v2 does not expose a public referrer endpoint.
-        """
-        raise NotImplementedError(
-            "upsert_referrer: Nookal API v2 does not expose a public referrer endpoint; see documentation"
+        # Stage 2: HTTP PUT bytes directly to presigned S3 URL
+        try:
+            put_resp = httpx.put(
+                presigned_url,
+                content=content,
+                headers={"Content-Type": file_type},
+                timeout=self._config.timeout_seconds,
+            )
+        except Exception as exc:
+            raise NookalError(f"Presigned S3 file PUT failed: {exc}") from exc
+
+        if not (200 <= put_resp.status_code < 300):
+            raise NookalError(f"Presigned S3 file PUT returned HTTP {put_resp.status_code}")
+
+        # Stage 3: Activate file
+        self.set_file_active(patient_id=patient_id, file_id=file_id)
+
+        return PatientFile(
+            file_id=file_id,
+            patient_id=patient_id,
+            name=name,
+            file_type=file_type,
+            date_added=date_added or date.today().isoformat(),
+            size=len(content),
+            raw={"file_id": file_id, "name": name, "file_type": file_type},
         )
 
-    # --- parsers ---
+    # --- Invoices ---
+
+    def get_invoice(self, invoice_id: str, *, void: int | None = None) -> Invoice:
+        if not invoice_id:
+            raise NookalValidationError("invoice_id is required for get_invoice")
+        params: dict[str, Any] = {"invoice_id": invoice_id}
+        if void is not None:
+            params["void"] = void
+
+        data = self._request(
+            "GET",
+            "/getInvoice",
+            action="get_invoice",
+            target_type="finance",
+            target_id=invoice_id,
+            params=params,
+        )
+        if isinstance(data, Mapping):
+            inv_data = data.get("invoice") if isinstance(data.get("invoice"), Mapping) else data
+            return self._parse_invoice(inv_data)
+        raise NookalNotFound(f"get_invoice: invoice {invoice_id} not found")
+
+    def get_invoices(
+        self,
+        patient_id: str,
+        *,
+        last_modified: str | None = None,
+        void: int | None = None,
+        expanded: int | None = None,
+    ) -> list[Invoice]:
+        if not patient_id:
+            raise NookalValidationError("patient_id is required for get_invoices")
+        params: dict[str, Any] = {"patient_id": patient_id}
+        if last_modified:
+            params["last_modified"] = last_modified
+        if void is not None:
+            params["void"] = void
+        if expanded is not None:
+            params["expanded"] = expanded
+
+        data = self._request(
+            "GET",
+            "/getInvoices",
+            action="get_invoices",
+            target_type="finance",
+            target_id=patient_id,
+            params=params,
+        )
+        rows = _unwrap_collection(data, "invoices")
+        return [self._parse_invoice(r) for r in rows if isinstance(r, Mapping)]
+
+    def get_invoice_entries(
+        self,
+        *,
+        invoice_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        lastmodified_date_from: date | None = None,
+        lastmodified_date_to: date | None = None,
+    ) -> list[InvoiceEntry]:
+        params: dict[str, Any] = {}
+        if invoice_id:
+            params["invoiceID"] = invoice_id
+        if date_from:
+            params["date_from"] = date_from.strftime("%Y-%m-%d")
+        if date_to:
+            params["date_to"] = date_to.strftime("%Y-%m-%d")
+        if lastmodified_date_from:
+            params["lastmodified_date_from"] = lastmodified_date_from.strftime("%Y-%m-%d")
+        if lastmodified_date_to:
+            params["lastmodified_date_to"] = lastmodified_date_to.strftime("%Y-%m-%d")
+
+        data = self._request(
+            "GET",
+            "/getInvoiceEntries",
+            action="get_invoice_entries",
+            target_type="finance",
+            target_id=invoice_id or "entries",
+            params=params,
+        )
+        rows = _unwrap_collection(data, "entries")
+        return [self._parse_invoice_entry(r) for r in rows if isinstance(r, Mapping)]
+
+    def get_invoice_credits(self, **params: Any) -> list[Mapping[str, Any]]:
+        data = self._request("GET", "/getInvoiceCredits", action="get_invoice_credits", target_type="finance", target_id="credits", params=params)
+        return [dict(r) for r in _unwrap_collection(data, "credits") if isinstance(r, Mapping)]
+
+    def get_invoice_discounts(self, **params: Any) -> list[Mapping[str, Any]]:
+        data = self._request("GET", "/getInvoiceDiscounts", action="get_invoice_discounts", target_type="finance", target_id="discounts", params=params)
+        return [dict(r) for r in _unwrap_collection(data, "discounts") if isinstance(r, Mapping)]
+
+    def get_invoice_payments(self, **params: Any) -> list[Mapping[str, Any]]:
+        data = self._request("GET", "/getInvoicePayments", action="get_invoice_payments", target_type="finance", target_id="payments", params=params)
+        return [dict(r) for r in _unwrap_collection(data, "payments") if isinstance(r, Mapping)]
+
+    def get_invoice_refunds(self, **params: Any) -> list[Mapping[str, Any]]:
+        data = self._request("GET", "/getInvoiceRefunds", action="get_invoice_refunds", target_type="finance", target_id="refunds", params=params)
+        return [dict(r) for r in _unwrap_collection(data, "refunds") if isinstance(r, Mapping)]
+
+    def get_invoice_adjustments(self, **params: Any) -> list[Mapping[str, Any]]:
+        data = self._request("GET", "/getInvoiceAdjustments", action="get_invoice_adjustments", target_type="finance", target_id="adjustments", params=params)
+        return [dict(r) for r in _unwrap_collection(data, "adjustments") if isinstance(r, Mapping)]
+
+    # --- Financial writes (supported official endpoints) ---
+
+    def add_invoice(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        data = self._request("POST", "/addInvoice", action="add_invoice", target_type="finance", target_id=str(payload.get("patient_id", "new")), is_write=True, json_body=payload)
+        return dict(data) if isinstance(data, Mapping) else {"result": data}
+
+    def delete_invoice(self, invoice_id: str) -> bool:
+        self._request("POST", "/deleteInvoice", action="delete_invoice", target_type="finance", target_id=invoice_id, is_write=True, json_body={"invoice_id": invoice_id})
+        return True
+
+    def add_item_to_invoice(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        data = self._request("POST", "/addItemToInvoice", action="add_item_to_invoice", target_type="finance", target_id=str(payload.get("invoice_id", "")), is_write=True, json_body=payload)
+        return dict(data) if isinstance(data, Mapping) else {"result": data}
+
+    def delete_item_from_invoice(self, item_id: str) -> bool:
+        self._request("POST", "/deleteItemFromInvoice", action="delete_item_from_invoice", target_type="finance", target_id=item_id, is_write=True, json_body={"item_id": item_id})
+        return True
+
+    def add_payment_to_invoice(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        data = self._request("POST", "/addPaymentToInvoice", action="add_payment_to_invoice", target_type="finance", target_id=str(payload.get("invoice_id", "")), is_write=True, json_body=payload)
+        return dict(data) if isinstance(data, Mapping) else {"result": data}
+
+    def delete_payment_from_invoice(self, payment_id: str) -> bool:
+        self._request("POST", "/deletePaymentFromInvoice", action="delete_payment_from_invoice", target_type="finance", target_id=payment_id, is_write=True, json_body={"payment_id": payment_id})
+        return True
+
+    def add_account_credit(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        data = self._request("POST", "/addAccountCredit", action="add_account_credit", target_type="finance", target_id=str(payload.get("patient_id", "")), is_write=True, json_body=payload)
+        return dict(data) if isinstance(data, Mapping) else {"result": data}
+
+    # --- Parsers ---
 
     @staticmethod
     def _parse_patient(data: Any) -> PatientRef:
@@ -1061,6 +2218,8 @@ class HttpNookalClient(NookalClient):
             raise NookalValidationError("patient payload missing id")
 
         first = data.get("firstName") or data.get("first_name") or data.get("FirstName") or data.get("firstname") or ""
+        middle = data.get("middleName") or data.get("middle_name") or data.get("MiddleName") or None
+        nick = data.get("nickName") or data.get("nickname") or data.get("NickName") or None
         last = data.get("lastName") or data.get("last_name") or data.get("LastName") or data.get("lastname") or ""
         full = (f"{first} {last}".strip()) or data.get("name") or data.get("full_name") or data.get("Name") or None
 
@@ -1088,6 +2247,7 @@ class HttpNookalClient(NookalClient):
                     except ValueError:
                         pass
 
+        gender = data.get("gender") or data.get("Gender")
         suburb = data.get("suburb") or data.get("Suburb")
         if not suburb and isinstance(data.get("address"), Mapping):
             addr = data["address"]
@@ -1095,16 +2255,36 @@ class HttpNookalClient(NookalClient):
         elif not suburb and isinstance(data.get("address"), str):
             suburb = data.get("address")
 
+        address = data.get("address")
+        postal_address = data.get("postalAddress") or data.get("postal_address")
+        online_code = data.get("onlineCode") or data.get("online_code")
+        deceased_val = data.get("deceased")
+        deceased = bool(deceased_val in (1, "1", True, "true"))
+
         ref_id = data.get("referrer_id") or data.get("referrerID")
+        date_created = data.get("dateCreated") or data.get("date_created")
+        date_modified = data.get("dateModified") or data.get("date_modified")
 
         return PatientRef(
             patient_id=str(pid),
+            first_name=first or None,
+            middle_name=middle,
+            last_name=last or None,
+            nickname=nick,
             phone=phone,
             email=email,
             display_name=full,
             date_of_birth=parsed_dob,
+            gender=str(gender) if gender else None,
             suburb=str(suburb) if suburb else None,
+            address=address,
+            postal_address=postal_address,
+            online_code=str(online_code) if online_code else None,
+            deceased=deceased,
             referrer_id=str(ref_id) if ref_id else None,
+            date_created=str(date_created) if date_created else None,
+            date_modified=str(date_modified) if date_modified else None,
+            raw=dict(data),
         )
 
     @staticmethod
@@ -1355,6 +2535,12 @@ class HttpNookalClient(NookalClient):
             or data.get("practitionerId")
             or data.get("practitioner")
         )
+        type_id = data.get("typeID") or data.get("type_id")
+        appt_type = data.get("type") or data.get("appointment_type")
+        notes = data.get("notes")
+        email_reminder = bool(data.get("emailReminderSent") in (1, "1", True, "true"))
+        invoice_gen = bool(data.get("invoiceGenerated") in (1, "1", True, "true"))
+        cancellation_date = data.get("cancellationDate") or data.get("cancellation_date")
 
         return Appointment(
             appointment_id=str(aid),
@@ -1364,6 +2550,243 @@ class HttpNookalClient(NookalClient):
             status=status,
             location_id=str(loc_id) if loc_id else None,
             practitioner_id=str(prac_id) if prac_id else None,
+            type_id=str(type_id) if type_id else None,
+            appointment_type=str(appt_type) if appt_type else None,
+            notes=str(notes) if notes else None,
+            arrived=arrived_val in ("1", "true", "True"),
+            dna=dna_val in ("1", "true", "True"),
+            cancelled=cancelled_val in ("1", "true", "True"),
+            cancellation_date=str(cancellation_date) if cancellation_date else None,
+            email_reminder_sent=email_reminder,
+            invoice_generated=invoice_gen,
+            raw=dict(data),
+        )
+
+    @staticmethod
+    def _parse_case(data: Any) -> CaseRef:
+        if not isinstance(data, Mapping):
+            raise NookalValidationError("unexpected case payload shape")
+        cid = data.get("ID") or data.get("id") or data.get("case_id") or data.get("caseID")
+        pid = data.get("patientID") or data.get("patient_id") or data.get("PatientID")
+        if not cid or not pid:
+            raise NookalValidationError("case payload missing id or patient_id")
+
+        return CaseRef(
+            case_id=str(cid),
+            patient_id=str(pid),
+            case_name=data.get("caseName") or data.get("case_name") or data.get("name"),
+            case_number=data.get("caseNumber") or data.get("case_number"),
+            status=data.get("status"),
+            date_created=data.get("dateCreated") or data.get("date_created"),
+            date_modified=data.get("dateModified") or data.get("date_modified"),
+            closed_date=data.get("closedDate") or data.get("closed_date"),
+            raw=dict(data),
+        )
+
+    @staticmethod
+    def _parse_treatment_note(data: Any) -> TreatmentNote:
+        if not isinstance(data, Mapping):
+            raise NookalValidationError("unexpected treatment note payload shape")
+        nid = data.get("ID") or data.get("id") or data.get("note_id") or data.get("noteID")
+        pid = data.get("patientID") or data.get("patient_id") or data.get("PatientID")
+        if not nid or not pid:
+            raise NookalValidationError("treatment note payload missing id or patient_id")
+
+        return TreatmentNote(
+            note_id=str(nid),
+            patient_id=str(pid),
+            case_id=data.get("caseID") or data.get("case_id"),
+            practitioner_id=data.get("practitionerID") or data.get("practitioner_id"),
+            date=data.get("date"),
+            notes=data.get("notes"),
+            appointment_id=data.get("apptID") or data.get("appt_id") or data.get("appointment_id"),
+            raw=dict(data),
+        )
+
+    @staticmethod
+    def _parse_extra(data: Any) -> PatientExtra:
+        if not isinstance(data, Mapping):
+            raise NookalValidationError("unexpected extra payload shape")
+        eid = data.get("ID") or data.get("id") or data.get("extra_id")
+        name = data.get("name") or data.get("extra_name") or ""
+        opts = data.get("options")
+        if isinstance(opts, list):
+            options_list = [str(o) for o in opts]
+        elif isinstance(opts, str):
+            options_list = [o.strip() for o in opts.split(",") if o.strip()]
+        else:
+            options_list = []
+
+        return PatientExtra(
+            extra_id=str(eid or ""),
+            name=str(name),
+            field_type=data.get("type") or data.get("field_type"),
+            options=options_list,
+            raw=dict(data),
+        )
+
+    @staticmethod
+    def _parse_location(data: Any) -> Location:
+        if not isinstance(data, Mapping):
+            raise NookalValidationError("unexpected location payload shape")
+        lid = data.get("ID") or data.get("id") or data.get("location_id")
+        name = data.get("name") or data.get("location_name") or ""
+        addr = data.get("address")
+        if isinstance(addr, Mapping):
+            addr_str = ", ".join(str(v) for v in addr.values() if v)
+        else:
+            addr_str = str(addr) if addr else None
+
+        return Location(
+            location_id=str(lid or ""),
+            name=str(name),
+            address=addr_str,
+            raw=dict(data),
+        )
+
+    @staticmethod
+    def _parse_practitioner(data: Any) -> Practitioner:
+        if not isinstance(data, Mapping):
+            raise NookalValidationError("unexpected practitioner payload shape")
+        pid = data.get("ID") or data.get("id") or data.get("practitioner_id")
+        first = data.get("firstName") or data.get("first_name") or ""
+        last = data.get("lastName") or data.get("last_name") or ""
+        locs = data.get("locations") or []
+        loc_list = [str(l) for l in locs] if isinstance(locs, list) else []
+
+        return Practitioner(
+            practitioner_id=str(pid or ""),
+            first_name=str(first) if first else None,
+            last_name=str(last) if last else None,
+            speciality=data.get("speciality") or data.get("specialty"),
+            title=data.get("title"),
+            email=data.get("email"),
+            locations=loc_list,
+            raw=dict(data),
+        )
+
+    @staticmethod
+    def _parse_appointment_type(data: Any) -> AppointmentType:
+        if not isinstance(data, Mapping):
+            raise NookalValidationError("unexpected appointment type payload shape")
+        tid = data.get("ID") or data.get("id") or data.get("type_id")
+        name = data.get("name") or ""
+        dur = data.get("duration")
+        price = data.get("price")
+        locs = data.get("locations") or []
+
+        return AppointmentType(
+            type_id=str(tid or ""),
+            name=str(name),
+            description=data.get("description"),
+            duration=int(dur) if dur is not None and str(dur).isdigit() else None,
+            price=float(price) if price is not None else None,
+            has_tax=bool(data.get("hasTax") in (1, "1", True)),
+            type=data.get("type"),
+            locations=[str(l) for l in locs] if isinstance(locs, list) else [],
+            raw=dict(data),
+        )
+
+    @staticmethod
+    def _parse_class_type(data: Any) -> ClassType:
+        if not isinstance(data, Mapping):
+            raise NookalValidationError("unexpected class type payload shape")
+        cid = data.get("ID") or data.get("id") or data.get("class_id")
+        name = data.get("name") or ""
+        dur = data.get("duration")
+        price = data.get("price")
+        locs = data.get("locations") or []
+
+        return ClassType(
+            class_id=str(cid or ""),
+            name=str(name),
+            description=data.get("description"),
+            duration=int(dur) if dur is not None and str(dur).isdigit() else None,
+            price=float(price) if price is not None else None,
+            locations=[str(l) for l in locs] if isinstance(locs, list) else [],
+            raw=dict(data),
+        )
+
+    @staticmethod
+    def _parse_class_participant(data: Any) -> ClassParticipant:
+        if not isinstance(data, Mapping):
+            raise NookalValidationError("unexpected class participant shape")
+        pid = data.get("ID") or data.get("id") or data.get("participant_id")
+        cid = data.get("classID") or data.get("class_id") or ""
+        patient_id = data.get("patientID") or data.get("patient_id")
+
+        return ClassParticipant(
+            participant_id=str(pid or ""),
+            class_id=str(cid),
+            patient_id=str(patient_id) if patient_id else None,
+            status=data.get("status"),
+            raw=dict(data),
+        )
+
+    @staticmethod
+    def _parse_patient_file(data: Any) -> PatientFile:
+        if not isinstance(data, Mapping):
+            raise NookalValidationError("unexpected patient file payload shape")
+        fid = data.get("ID") or data.get("id") or data.get("file_id") or data.get("fileID")
+        pid = data.get("patientID") or data.get("patient_id") or data.get("PatientID")
+        name = data.get("name") or data.get("filename") or data.get("file_path") or "file"
+        size = data.get("size") or data.get("file_size")
+
+        return PatientFile(
+            file_id=str(fid or ""),
+            patient_id=str(pid or ""),
+            name=str(name),
+            file_type=data.get("fileType") or data.get("file_type"),
+            date_added=data.get("dateAdded") or data.get("date_added"),
+            size=int(size) if size is not None and str(size).isdigit() else None,
+            raw=dict(data),
+        )
+
+    @staticmethod
+    def _parse_invoice(data: Any) -> Invoice:
+        if not isinstance(data, Mapping):
+            raise NookalValidationError("unexpected invoice payload shape")
+        iid = data.get("ID") or data.get("id") or data.get("invoice_id") or data.get("invoiceID")
+        pid = data.get("patientID") or data.get("patient_id") or data.get("PatientID")
+        total = data.get("total") or data.get("amount") or data.get("invoice_total")
+        void_val = data.get("void")
+
+        entries_raw = data.get("entries") or data.get("items") or []
+        entries = []
+        if isinstance(entries_raw, list):
+            for e in entries_raw:
+                if isinstance(e, Mapping):
+                    entries.append(HttpNookalClient._parse_invoice_entry(e))
+
+        return Invoice(
+            invoice_id=str(iid or ""),
+            patient_id=str(pid or ""),
+            date=data.get("date") or data.get("invoiceDate") or data.get("invoice_date"),
+            total=float(total) if total is not None else None,
+            status=data.get("status"),
+            void=bool(void_val in (1, "1", True)),
+            expanded=bool(entries),
+            entries=entries,
+            raw=dict(data),
+        )
+
+    @staticmethod
+    def _parse_invoice_entry(data: Any) -> InvoiceEntry:
+        if not isinstance(data, Mapping):
+            raise NookalValidationError("unexpected invoice entry payload shape")
+        eid = data.get("ID") or data.get("id") or data.get("entry_id")
+        price = data.get("price") or data.get("amount")
+        qty = data.get("quantity") or data.get("qty")
+        tax = data.get("tax")
+
+        return InvoiceEntry(
+            entry_id=str(eid or ""),
+            invoice_id=str(data.get("invoiceID") or data.get("invoice_id") or "") or None,
+            item_id=str(data.get("itemID") or data.get("item_id") or "") or None,
+            description=data.get("description") or data.get("item_name"),
+            price=float(price) if price is not None else None,
+            quantity=float(qty) if qty is not None else None,
+            tax=float(tax) if tax is not None else None,
             raw=dict(data),
         )
 
@@ -1376,7 +2799,7 @@ def _age_years(dob: date, as_of: date) -> int:
 
 
 class MockNookalClient(NookalClient):
-    """In-memory stand-in for tests and dry-runs. Same interface as HttpNookalClient."""
+    """In-memory stand-in for tests and dry-runs. Implements the full NookalClient interface."""
 
     def __init__(
         self,
@@ -1390,10 +2813,22 @@ class MockNookalClient(NookalClient):
         self.as_of = as_of
         self.patients: dict[str, PatientRef] = {}
         self.appointments: dict[str, Appointment] = {}
+        self.cases: dict[str, CaseRef] = {}
+        self.treatment_notes: list[TreatmentNote] = []
+        self.extras: list[PatientExtra] = []
+        self.locations: dict[str, Location] = {}
+        self.practitioners: dict[str, Practitioner] = {}
+        self.appointment_types: dict[str, AppointmentType] = {}
+        self.class_types: dict[str, ClassType] = {}
+        self.class_participants: list[ClassParticipant] = []
+        self.files: dict[str, PatientFile] = {}
+        self.invoices: dict[str, Invoice] = {}
+        self.invoice_entries: list[InvoiceEntry] = []
+        self.open_slots: list[datetime] = []
+        # Legacy test data stores (for test_orchestration_phase_c / test_mock_nookal_phase_a)
         self.referrers: dict[str, Referrer] = {}
         self.referrals: dict[str, Referral] = {}
         self.documents: list[DocumentMeta] = []
-        self.open_slots: list[datetime] = []
         self._seq = 1000
 
     def _next_id(self, prefix: str) -> str:
@@ -1445,9 +2880,7 @@ class MockNookalClient(NookalClient):
 
     def get_referral(self, referral_id: str) -> Referral:
         if referral_id not in self.referrals:
-            self._audit(
-                self._actor, "get_referral", "patient_record", referral_id, "failure"
-            )
+            self._audit(self._actor, "get_referral", "patient_record", referral_id, "failure")
             raise NookalNotFound(referral_id)
         self._audit(self._actor, "get_referral", "patient_record", referral_id, "success")
         return self.referrals[referral_id]
@@ -1464,14 +2897,101 @@ class MockNookalClient(NookalClient):
         if referrer_id:
             results = [r for r in results if r.referrer_id == referrer_id]
         results.sort(key=lambda r: (r.recorded_on.isoformat(), r.referral_id))
-        self._audit(
-            self._actor,
-            "list_referrals",
-            "patient_record",
-            patient_id or referrer_id or "all",
-            "success",
-            metadata={"count": len(results)},
-        )
+        return results
+
+    # Legacy mock referrer methods for Phase C orchestration test helpers
+    def list_referrers(self) -> list[Referrer]:
+        return list(self.referrers.values())
+
+    def upsert_referrer(self, payload: Mapping[str, Any]) -> Referrer:
+        rid = str(payload.get("referrer_id") or self._next_id("ref"))
+        ref = Referrer(referrer_id=rid, name=str(payload["name"]), provider_number=payload.get("provider_number"), raw=dict(payload))
+        self.referrers[rid] = ref
+        return ref
+
+    # --- Patients ---
+
+    def get_patients(
+        self,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+        deceased: int | None = None,
+    ) -> list[PatientRef]:
+        res = list(self.patients.values())
+        if deceased is not None:
+            res = [p for p in res if p.deceased == bool(deceased)]
+        return res[:page_length]
+
+    def search_patients(
+        self,
+        *,
+        patient_id: str | None = None,
+        online_code: str | None = None,
+        date_created: str | None = None,
+        email: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        date_of_birth: str | None = None,
+        fuzzy_search: str | None = None,
+        suburb: str | None = None,
+        age_min: int | None = None,
+        age_max: int | None = None,
+        appointment_from: date | None = None,
+        appointment_to: date | None = None,
+        referrer_id: str | None = None,
+        deceased: int | None = None,
+    ) -> list[PatientRef]:
+        results = list(self.patients.values())
+        if deceased is not None:
+            results = [p for p in results if p.deceased == bool(deceased)]
+        if patient_id:
+            results = [p for p in results if p.patient_id == patient_id]
+        if email:
+            results = [p for p in results if (p.email or "").lower() == email.lower()]
+        if first_name:
+            results = [p for p in results if (p.first_name or "").lower() == first_name.lower()]
+        if last_name:
+            results = [p for p in results if (p.last_name or "").lower() == last_name.lower()]
+        if fuzzy_search:
+            needle = fuzzy_search.lower()
+            results = [p for p in results if needle in (p.display_name or "").lower() or needle in (p.phone or "")]
+        if suburb is not None:
+            needle = suburb.casefold()
+            results = [p for p in results if (p.suburb or "").casefold() == needle]
+
+        as_of = self._age_as_of()
+        if age_min is not None or age_max is not None:
+            filtered: list[PatientRef] = []
+            for p in results:
+                if p.date_of_birth is None:
+                    continue
+                age = _age_years(p.date_of_birth, as_of)
+                if age_min is not None and age < age_min:
+                    continue
+                if age_max is not None and age > age_max:
+                    continue
+                filtered.append(p)
+            results = filtered
+
+        if appointment_from is not None or appointment_to is not None:
+            filtered_by_appt: list[PatientRef] = []
+            for p in results:
+                if p.last_appointment_date is not None:
+                    day = p.last_appointment_date
+                    if appointment_from is not None and day < appointment_from:
+                        continue
+                    if appointment_to is not None and day > appointment_to:
+                        continue
+                    filtered_by_appt.append(p)
+            if filtered_by_appt or any(p.last_appointment_date is not None for p in results):
+                results = filtered_by_appt
+
+        if referrer_id is not None:
+            results = [p for p in results if p.referrer_id == referrer_id]
+
+        results.sort(key=lambda p: p.patient_id)
         return results
 
     def get_patient(self, patient_id: str) -> PatientRef:
@@ -1493,6 +3013,91 @@ class MockNookalClient(NookalClient):
         )
         return hits
 
+    # --- Cases ---
+
+    def get_cases(
+        self,
+        patient_id: str,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+    ) -> list[CaseRef]:
+        return [c for c in self.cases.values() if c.patient_id == patient_id][:page_length]
+
+    def get_all_cases(
+        self,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+    ) -> list[CaseRef]:
+        return list(self.cases.values())[:page_length]
+
+    # --- Treatment Notes ---
+
+    def get_treatment_notes(
+        self,
+        patient_id: str,
+        *,
+        page: int = 1,
+        page_length: int = 100,
+        last_modified: str | None = None,
+    ) -> list[TreatmentNote]:
+        return [n for n in self.treatment_notes if n.patient_id == patient_id][:page_length]
+
+    def get_all_treatment_notes(
+        self,
+        *,
+        page: int = 1,
+        page_length: int = 50,
+        last_modified: str | None = None,
+        practitioner_id: str | None = None,
+    ) -> list[TreatmentNote]:
+        notes = list(self.treatment_notes)
+        if practitioner_id:
+            notes = [n for n in notes if n.practitioner_id == practitioner_id]
+        return notes[:page_length]
+
+    def add_treatment_note(
+        self,
+        *,
+        patient_id: str,
+        case_id: str,
+        practitioner_id: str,
+        date: str | datetime,
+        notes: str,
+        appt_id: str | None = None,
+    ) -> TreatmentNote:
+        note_id = self._next_id("note")
+        note = TreatmentNote(
+            note_id=note_id,
+            patient_id=patient_id,
+            case_id=case_id,
+            practitioner_id=practitioner_id,
+            date=date,
+            notes=notes,
+            appointment_id=appt_id,
+        )
+        self.treatment_notes.append(note)
+        return note
+
+    # --- Extras ---
+
+    def get_extras(self) -> list[PatientExtra]:
+        return list(self.extras)
+
+    def add_patient_extra(
+        self,
+        *,
+        patient_id: str,
+        extra_id: str,
+        value: str,
+    ) -> bool:
+        return True
+
+    # --- Appointments ---
+
     def list_appointments(
         self,
         *,
@@ -1500,6 +3105,16 @@ class MockNookalClient(NookalClient):
         date_from: date | None = None,
         date_to: date | None = None,
         patient_id: str | None = None,
+        location_id: str | None = None,
+        practitioner_id: str | None = None,
+        appt_status: str | None = None,
+        time_from: str | None = None,
+        time_to: str | None = None,
+        service_id: str | None = None,
+        class_id: str | None = None,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
     ) -> list[Appointment]:
         results = list(self.appointments.values())
         if patient_id:
@@ -1510,15 +3125,13 @@ class MockNookalClient(NookalClient):
             results = [a for a in results if a.starts_at.date() >= date_from]
         if date_to:
             results = [a for a in results if a.starts_at.date() <= date_to]
-        self._audit(
-            self._actor,
-            "list_appointments",
-            "appointment",
-            patient_id or "range",
-            "success",
-            metadata={"count": len(results)},
-        )
-        return results
+        if location_id:
+            results = [a for a in results if a.location_id == location_id]
+        if practitioner_id:
+            results = [a for a in results if a.practitioner_id == practitioner_id]
+        if appt_status:
+            results = [a for a in results if (a.status or "").lower() == appt_status.lower()]
+        return results[:page_length]
 
     def get_appointment(self, appointment_id: str) -> Appointment:
         if appointment_id not in self.appointments:
@@ -1527,89 +3140,27 @@ class MockNookalClient(NookalClient):
         self._audit(self._actor, "get_appointment", "appointment", appointment_id, "success")
         return self.appointments[appointment_id]
 
-    def search_patients(
-        self,
-        *,
-        suburb: str | None = None,
-        age_min: int | None = None,
-        age_max: int | None = None,
-        appointment_from: date | None = None,
-        appointment_to: date | None = None,
-        referrer_id: str | None = None,
-    ) -> list[PatientRef]:
-        results = list(self.patients.values())
-        as_of = self._age_as_of()
+    def create_appointment(self, payload: Mapping[str, Any]) -> Appointment:
+        aid = str(payload.get("appointment_id") or self._next_id("appt"))
+        starts = payload.get("starts_at")
+        if isinstance(starts, str):
+            starts = datetime.fromisoformat(starts)
+        elif not isinstance(starts, datetime):
+            appt_d = payload.get("appointment_date") or date.today().isoformat()
+            appt_t = payload.get("start_time") or "09:00:00"
+            starts = datetime.fromisoformat(f"{appt_d}T{appt_t}")
 
-        if suburb is not None:
-            needle = suburb.casefold()
-            results = [p for p in results if (p.suburb or "").casefold() == needle]
-
-        if age_min is not None or age_max is not None:
-            filtered: list[PatientRef] = []
-            for p in results:
-                if p.date_of_birth is None:
-                    continue
-                age = _age_years(p.date_of_birth, as_of)
-                if age_min is not None and age < age_min:
-                    continue
-                if age_max is not None and age > age_max:
-                    continue
-                filtered.append(p)
-            results = filtered
-
-        if appointment_from is not None or appointment_to is not None:
-            matching_ids: set[str] = set()
-            for appt in self.appointments.values():
-                day = appt.starts_at.date()
-                if appointment_from is not None and day < appointment_from:
-                    continue
-                if appointment_to is not None and day > appointment_to:
-                    continue
-                matching_ids.add(appt.patient_id)
-            results = [p for p in results if p.patient_id in matching_ids]
-
-        if referrer_id is not None:
-            results = [p for p in results if p.referrer_id == referrer_id]
-
-        results.sort(key=lambda p: p.patient_id)
-        self._audit(
-            self._actor,
-            "search_patients",
-            "patient_record",
-            "search",
-            "success",
-            metadata={"count": len(results)},
+        appt = Appointment(
+            appointment_id=aid,
+            patient_id=str(payload["patient_id"]),
+            starts_at=starts,
+            status=payload.get("status") or "booked",
+            location_id=str(payload.get("location_id", "1")),
+            practitioner_id=str(payload.get("practitioner_id", "1")),
+            raw=dict(payload),
         )
-        return results
-
-    def list_referrers(self) -> list[Referrer]:
-        results = list(self.referrers.values())
-        self._audit(self._actor, "list_referrers", "patient_record", "referrers", "success")
-        return results
-
-    def get_appointment_availabilities(
-        self,
-        *,
-        location_id: str | None = None,
-        practitioner_id: str | None = None,
-        date_from: date | None = None,
-        date_to: date | None = None,
-        appointment_type_id: str | None = None,
-    ) -> list[Mapping[str, Any]]:
-        slots = self.open_slots
-        if date_from:
-            slots = [s for s in slots if s.date() >= date_from]
-        if date_to:
-            slots = [s for s in slots if s.date() <= date_to]
-        self._audit(
-            self._actor,
-            "get_appointment_availabilities",
-            "appointment",
-            "availabilities",
-            "success",
-            metadata={"count": len(slots)},
-        )
-        return [{"start": s.isoformat()} for s in sorted(slots)]
+        self.appointments[aid] = appt
+        return appt
 
     def update_appointment(
         self,
@@ -1619,85 +3170,40 @@ class MockNookalClient(NookalClient):
         status: str | None = None,
         **fields: Any,
     ) -> Appointment:
-        try:
-            assert_allows("nookal.update_appointment")
-        except KillSwitchActive:
-            self._audit(
-                self._actor,
-                "update_appointment",
-                "appointment",
-                appointment_id,
-                "blocked",
-                metadata={"reason": "kill_switch"},
-            )
-            raise
-
-        current = self.get_appointment(appointment_id)
+        existing = self.get_appointment(appointment_id)
         updated = Appointment(
-            appointment_id=current.appointment_id,
-            patient_id=current.patient_id,
-            starts_at=starts_at or current.starts_at,
-            ends_at=current.ends_at,
-            status=status if status is not None else current.status,
-            location_id=current.location_id,
-            practitioner_id=current.practitioner_id,
-            raw={**dict(current.raw), **fields},
+            appointment_id=existing.appointment_id,
+            patient_id=existing.patient_id,
+            starts_at=starts_at if starts_at is not None else existing.starts_at,
+            ends_at=existing.ends_at,
+            status=status if status is not None else existing.status,
+            location_id=fields.get("location_id") or existing.location_id,
+            practitioner_id=fields.get("practitioner_id") or existing.practitioner_id,
+            raw={**existing.raw, **fields},
         )
         self.appointments[appointment_id] = updated
-        self._audit(self._actor, "update_appointment", "appointment", appointment_id, "success")
         return updated
-
-    def create_appointment(self, payload: Mapping[str, Any]) -> Appointment:
-        try:
-            assert_allows("nookal.create_appointment")
-        except KillSwitchActive:
-            self._audit(
-                self._actor,
-                "create_appointment",
-                "appointment",
-                str(payload.get("patient_id", "new")),
-                "blocked",
-                metadata={"reason": "kill_switch"},
-            )
-            raise
-
-        aid = self._next_id("appt")
-        starts = payload.get("starts_at")
-        if isinstance(starts, str):
-            starts = datetime.fromisoformat(starts)
-        if not isinstance(starts, datetime):
-            raise NookalValidationError("starts_at required")
-        appt = Appointment(
-            appointment_id=aid,
-            patient_id=str(payload["patient_id"]),
-            starts_at=starts,
-            status=str(payload.get("status", "booked")),
-            raw=dict(payload),
-        )
-        self.appointments[aid] = appt
-        self._audit(self._actor, "create_appointment", "appointment", aid, "success")
-        return appt
 
     def cancel_appointment(
         self,
         appointment_id: str,
         *,
-        patient_id: str | None = None,
+        patient_id: str,
     ) -> Appointment:
-        try:
-            assert_allows("nookal.cancel_appointment")
-        except KillSwitchActive:
-            self._audit(
-                self._actor,
-                "cancel_appointment",
-                "appointment",
-                appointment_id,
-                "blocked",
-                metadata={"reason": "kill_switch"},
-            )
-            raise
-
-        return self.update_appointment(appointment_id, status="cancelled")
+        existing = self.get_appointment(appointment_id)
+        updated = Appointment(
+            appointment_id=existing.appointment_id,
+            patient_id=existing.patient_id,
+            starts_at=existing.starts_at,
+            ends_at=existing.ends_at,
+            status="cancelled",
+            location_id=existing.location_id,
+            practitioner_id=existing.practitioner_id,
+            cancelled=True,
+            raw={**existing.raw, "status": "cancelled"},
+        )
+        self.appointments[appointment_id] = updated
+        return updated
 
     def rebook_appointment(
         self,
@@ -1710,41 +3216,150 @@ class MockNookalClient(NookalClient):
         appointment_date: str | date,
         cancel_first: bool = False,
     ) -> Appointment:
-        try:
-            assert_allows("nookal.rebook_appointment")
-        except KillSwitchActive:
-            self._audit(
-                self._actor,
-                "rebook_appointment",
-                "appointment",
-                appointment_id,
-                "blocked",
-                metadata={"reason": "kill_switch"},
-            )
-            raise
-
-        date_str = (
-            appointment_date.isoformat()
-            if isinstance(appointment_date, date)
-            else str(appointment_date)
-        )
-        dt = datetime.fromisoformat(f"{date_str}T{start_time}")
         if cancel_first:
-            self.update_appointment(appointment_id, status="cancelled")
-
-        new_aid = self._next_id("appt")
-        rebooked = Appointment(
-            appointment_id=new_aid,
+            self.cancel_appointment(appointment_id, patient_id=patient_id)
+        new_id = self._next_id("rebook")
+        d_str = appointment_date.isoformat() if isinstance(appointment_date, date) else str(appointment_date)
+        dt = datetime.fromisoformat(f"{d_str}T{start_time}")
+        new_appt = Appointment(
+            appointment_id=new_id,
             patient_id=patient_id,
             starts_at=dt,
             status="booked",
             location_id=location_id,
             practitioner_id=practitioner_id,
-            raw={"rebooked_from": appointment_id},
         )
-        self.appointments[new_aid] = rebooked
-        self._audit(self._actor, "rebook_appointment", "appointment", new_aid, "success")
-        return rebooked
+        self.appointments[new_id] = new_appt
+        return new_appt
+
+    def get_appointment_availabilities(
+        self,
+        *,
+        location_id: str | None = None,
+        practitioner_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        appointment_type_id: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        return [{"time": s.strftime("%H:%M:%S"), "date": s.strftime("%Y-%m-%d")} for s in self.open_slots]
+
+    def get_class_availabilities(
+        self,
+        *,
+        location_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        class_id: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        return []
+
+    # --- Locations & Practitioners ---
+
+    def get_locations(self, *, last_modified: str | None = None) -> list[Location]:
+        return list(self.locations.values())
+
+    def get_location_logo(self, location_id: str) -> str | None:
+        return "https://api.nookal.com/static/logo.png"
+
+    def get_practitioners(
+        self,
+        *,
+        last_modified: str | None = None,
+        include_inactive_practitioners: bool = False,
+    ) -> list[Practitioner]:
+        return list(self.practitioners.values())
+
+    def get_practitioner_photo(self, practitioner_id: str) -> str | None:
+        return "https://api.nookal.com/static/photo.png"
+
+    # --- Services & Classes ---
+
+    def get_appointment_types(self) -> list[AppointmentType]:
+        return list(self.appointment_types.values())
+
+    def get_class_types(self) -> list[ClassType]:
+        return list(self.class_types.values())
+
+    def get_class_participants(
+        self,
+        class_id: str,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+    ) -> list[ClassParticipant]:
+        return [p for p in self.class_participants if p.class_id == class_id][:page_length]
+
+    def get_class_redemptions(self) -> list[Redemption]:
+        return []
+
+    def get_service_redemptions(self) -> list[Redemption]:
+        return []
+
+    def get_waiting_list(self) -> list[WaitingListEntry]:
+        return []
+
+    # --- Documents ---
+
+    def get_patient_files(
+        self,
+        patient_id: str,
+        *,
+        page: int = 1,
+        page_length: int = 200,
+        last_modified: str | None = None,
+    ) -> list[PatientFile]:
+        return [f for f in self.files.values() if f.patient_id == patient_id][:page_length]
+
+    def get_file_url(self, patient_id: str, file_id: str) -> str:
+        return f"https://s3.amazonaws.com/nookal-files/{patient_id}/{file_id}.pdf?signature=temp"
+
+    def upload_file(
+        self,
+        *,
+        patient_id: str,
+        name: str,
+        extension: str,
+        file_type: str,
+        file_path: str,
+        case_id: str | None = None,
+        date_added: str | None = None,
+    ) -> tuple[str, str]:
+        fid = self._next_id("file")
+        return fid, f"https://s3.amazonaws.com/nookal-upload/{fid}"
+
+    def set_file_active(self, *, patient_id: str, file_id: str) -> bool:
+        return True
+
+    def upload_patient_document(
+        self,
+        *,
+        patient_id: str,
+        name: str,
+        extension: str,
+        file_type: str,
+        content: bytes,
+        case_id: str | None = None,
+        date_added: str | None = None,
+    ) -> PatientFile:
+        fid, _ = self.upload_file(
+            patient_id=patient_id,
+            name=name,
+            extension=extension,
+            file_type=file_type,
+            file_path=f"{name}.{extension}",
+            case_id=case_id,
+            date_added=date_added,
+        )
+        pfile = PatientFile(
+            file_id=fid,
+            patient_id=patient_id,
+            name=name,
+            file_type=file_type,
+            date_added=date_added or date.today().isoformat(),
+            size=len(content),
+        )
+        self.files[fid] = pfile
+        return pfile
 
     def save_document(
         self,
@@ -1754,62 +3369,65 @@ class MockNookalClient(NookalClient):
         content: bytes,
         content_type: str = "application/pdf",
     ) -> DocumentMeta:
-        try:
-            assert_allows("nookal.save_document")
-        except KillSwitchActive:
-            self._audit(
-                self._actor,
-                "save_document",
-                "document",
-                patient_id,
-                "blocked",
-                metadata={"reason": "kill_switch"},
-            )
-            raise
-
-        meta = DocumentMeta(
-            document_id=self._next_id("doc"),
-            patient_id=patient_id,
-            title=title,
-        )
+        doc_id = self._next_id("doc")
+        meta = DocumentMeta(doc_id, patient_id, title)
         self.documents.append(meta)
-        self._audit(
-            self._actor,
-            "save_document",
-            "document",
-            meta.document_id,
-            "success",
-            metadata={"bytes": len(content), "content_type": content_type},
-        )
         return meta
 
-    def upsert_referrer(self, payload: Mapping[str, Any]) -> Referrer:
-        try:
-            assert_allows("nookal.upsert_referrer")
-        except KillSwitchActive:
-            self._audit(
-                self._actor,
-                "upsert_referrer",
-                "patient_record",
-                str(payload.get("referrer_id", "new")),
-                "blocked",
-                metadata={"reason": "kill_switch"},
-            )
-            raise
+    # --- Invoices ---
 
-        rid = str(payload.get("referrer_id") or self._next_id("ref"))
-        ref = Referrer(
-            referrer_id=rid,
-            name=str(payload["name"]),
-            provider_number=payload.get("provider_number"),
-            raw=dict(payload),
-        )
-        self.referrers[rid] = ref
-        self._audit(self._actor, "upsert_referrer", "patient_record", rid, "success")
-        return ref
+    def get_invoice(self, invoice_id: str, *, void: int | None = None) -> Invoice:
+        if invoice_id not in self.invoices:
+            raise NookalNotFound(f"invoice {invoice_id} not found")
+        return self.invoices[invoice_id]
+
+    def get_invoices(
+        self,
+        patient_id: str,
+        *,
+        last_modified: str | None = None,
+        void: int | None = None,
+        expanded: int | None = None,
+    ) -> list[Invoice]:
+        return [inv for inv in self.invoices.values() if inv.patient_id == patient_id]
+
+    def get_invoice_entries(
+        self,
+        *,
+        invoice_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        lastmodified_date_from: date | None = None,
+        lastmodified_date_to: date | None = None,
+    ) -> list[InvoiceEntry]:
+        if invoice_id:
+            return [e for e in self.invoice_entries if e.invoice_id == invoice_id]
+        return list(self.invoice_entries)
+
+    def get_invoice_credits(self, **params: Any) -> list[Mapping[str, Any]]:
+        return []
+
+    def get_invoice_discounts(self, **params: Any) -> list[Mapping[str, Any]]:
+        return []
+
+    def get_invoice_payments(self, **params: Any) -> list[Mapping[str, Any]]:
+        return []
+
+    def get_invoice_refunds(self, **params: Any) -> list[Mapping[str, Any]]:
+        return []
+
+    def get_invoice_adjustments(self, **params: Any) -> list[Mapping[str, Any]]:
+        return []
 
 
-def build_client(*, use_mock: bool = False) -> NookalClient:
+def build_client(
+    config: NookalConfig | None = None,
+    *,
+    use_mock: bool = False,
+    audit: AuditFn | None = None,
+    actor: str = "nookal_client",
+) -> NookalClient:
+    """Build HttpNookalClient or MockNookalClient."""
     if use_mock:
-        return MockNookalClient()
-    return HttpNookalClient()
+        return MockNookalClient(audit=audit, actor=actor)
+    return HttpNookalClient(config=config, audit=audit, actor=actor)

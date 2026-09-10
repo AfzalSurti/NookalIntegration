@@ -88,7 +88,22 @@ class ReferrerSyncWorkflow(BaseWorkflow):
         candidates: list of {name, provider_number?, referrer_id?} — synthetic only.
         """
         store = conflict_store or ReferrerConflictStore()
-        existing = list(ctx.nookal.list_referrers())
+        if not hasattr(ctx.nookal, "list_referrers"):
+            return WorkflowResult.failed(
+                self.name,
+                ctx.correlation_id,
+                code="referrers_unsupported",
+                message="Nookal API v2 does not expose referrer endpoints; referrer sync requires mock or local store.",
+            )
+        try:
+            existing = list(ctx.nookal.list_referrers())
+        except NotImplementedError:
+            return WorkflowResult.failed(
+                self.name,
+                ctx.correlation_id,
+                code="referrers_unsupported",
+                message="Nookal API v2 does not expose referrer endpoints; referrer sync requires mock or local store.",
+            )
         items: list[dict[str, Any]] = []
         counts = {"exact_updated": 0, "conflict": 0, "new_pending": 0, "failed": 0}
 
@@ -172,6 +187,19 @@ class ReferrerSyncWorkflow(BaseWorkflow):
                 "name": name,
                 "provider_number": candidate.get("provider_number") or ref.provider_number,
             }
+            if not hasattr(ctx.nookal, "upsert_referrer"):
+                ctx.audit_event(
+                    "referrer_sync.update_failed",
+                    target_type="patient_record",
+                    target_id=ref.referrer_id,
+                    result="failure",
+                    metadata={"error_type": "NotImplementedError"},
+                )
+                return {
+                    "outcome": "failed",
+                    "code": "upsert_unsupported",
+                    "referrer_id": ref.referrer_id,
+                }
             try:
                 updated = ctx.nookal.upsert_referrer(payload)
             except KillSwitchActive:

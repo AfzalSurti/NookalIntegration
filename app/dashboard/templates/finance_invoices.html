@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Nookal Invoices — Back to Ease{% endblock %}
+{% block topbar_title %}Patient Invoices (Nookal){% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+    <h1 class="page-title">Patient Invoices (Nookal API)</h1>
+    <span class="badge badge-info">{{ invoices|length }} invoices</span>
+    {% if has_active_filters %}
+      <span class="badge badge-warning">Filtered</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Filter Invoices</div>
+    {% if has_active_filters %}
+      <a href="/finance/invoices" class="btn btn-secondary btn-sm">Clear Filters</a>
+    {% endif %}
+  </div>
+  <form method="get" action="/finance/invoices">
+    <div class="form-row" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+      <div class="form-group">
+        <label for="patient_id">Patient ID</label>
+        <input id="patient_id" name="patient_id" value="{{ filters.patient_id }}" placeholder="e.g. pat_1001">
+      </div>
+      <div class="form-group">
+        <label for="status">Status</label>
+        <select id="status" name="status">
+          <option value="" {% if not filters.status %}selected{% endif %}>All Statuses</option>
+          <option value="Paid" {% if filters.status == "Paid" %}selected{% endif %}>Paid</option>
+          <option value="Unpaid" {% if filters.status == "Unpaid" %}selected{% endif %}>Unpaid</option>
+          <option value="Partial" {% if filters.status == "Partial" %}selected{% endif %}>Partial</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="date_from">Date From</label>
+        <input id="date_from" name="date_from" type="date" value="{{ filters.date_from }}">
+      </div>
+      <div class="form-group">
+        <label for="date_to">Date To</label>
+        <input id="date_to" name="date_to" type="date" value="{{ filters.date_to }}">
+      </div>
+    </div>
+    <div class="form-actions" style="margin-top: var(--sp-4);">
+      <button type="submit" class="btn btn-primary">Apply Filters</button>
+      <a href="/finance/invoices" class="btn btn-secondary">Clear / Reset</a>
+    </div>
+  </form>
+</div>
+
+<div class="table-wrapper">
+  <table>
+    <thead>
+      <tr>
+        <th>Invoice ID</th>
+        <th>Patient</th>
+        <th>Date</th>
+        <th>Total</th>
+        <th>Status</th>
+        <th>Void</th>
+        <th>Entries</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for inv in invoices %}
+      <tr>
+        <td><code>{{ inv.invoice_id }}</code></td>
+        <td><a href="/patients/{{ inv.patient_id }}"><strong>{{ inv.patient_id }}</strong></a></td>
+        <td>{{ inv.date or "—" }}</td>
+        <td><strong>${{ "%.2f"|format(inv.total) if inv.total is not none else "0.00" }}</strong></td>
+        <td>
+          {% if inv.status == "Paid" or inv.status == "paid" %}
+            <span class="badge badge-success">Paid</span>
+          {% elif inv.status == "Unpaid" or inv.status == "unpaid" %}
+            <span class="badge badge-warning">Unpaid</span>
+          {% else %}
+            <span class="badge badge-neutral">{{ inv.status or "—" }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if inv.void %}
+            <span class="badge badge-error">Voided</span>
+          {% else %}
+            <span class="badge badge-success">Valid</span>
+          {% endif %}
+        </td>
+        <td>{{ inv.entries|length }} items</td>
+      </tr>
+    {% else %}
+      <tr>
+        <td colspan="7">
+          <div class="empty-state">
+            <div class="empty-state-title">No Nookal invoices found</div>
+            <div class="empty-state-text">No invoices matching the search criteria.</div>
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="info-banner" style="margin-top: var(--sp-6);">
+  Note: This view displays live patient billing records from Nookal API v2. For clinic operational expense receipt OCR review, visit <a href="/finance/expenses" style="font-weight: 600;">Clinic Expense Review</a>.
+</div>
+{% endblock %}

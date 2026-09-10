@@ -29,10 +29,7 @@ _PRACTITIONER: frozenset[Permission] = _STAFF | frozenset(
     }
 )
 
-_ADMIN: frozenset[Permission] = (_PRACTITIONER - {
-    Permission.CASE_VIEW,
-    Permission.CASE_ACKNOWLEDGE,
-}) | frozenset(
+_ADMIN: frozenset[Permission] = _PRACTITIONER | frozenset(
     {
         Permission.REFERRER_RESOLVE,
         Permission.AUDIT_VIEW,

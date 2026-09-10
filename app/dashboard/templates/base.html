@@ -584,11 +584,14 @@
         </a>
 
         <div class="nav-group-label">Finance</div>
+        <a href="/finance/invoices" class="nav-link {% if request.url.path == '/finance/invoices' %}active{% endif %}">
+          <span class="nav-icon">🧾</span> Nookal Invoices
+        </a>
         <a href="/finance/documents" class="nav-link {% if request.url.path == '/finance/documents' %}active{% endif %}">
           <span class="nav-icon">▤</span> Document Review
         </a>
         <a href="/finance/expenses" class="nav-link {% if request.url.path == '/finance/expenses' %}active{% endif %}">
-          <span class="nav-icon">$</span> Expense Review
+          <span class="nav-icon">$</span> Clinic Expenses
         </a>
 
         <div class="nav-group-label">Administration</div>

@@ -1,6 +1,7 @@
 from app.dashboard.services.approvals import ApprovalService, safe_draft_from_task, task_to_out
 from app.dashboard.services.appointments import AppointmentService
 from app.dashboard.services.audit_viewer import AuditViewerService
+from app.dashboard.services.invoices import InvoiceService
 from app.dashboard.services.marketing import MarketingService
 from app.dashboard.services.patients import PatientService
 from app.dashboard.services.referrers import ReferrerConflictService
@@ -11,6 +12,7 @@ __all__ = [
     "ApprovalService",
     "AppointmentService",
     "AuditViewerService",
+    "InvoiceService",
     "MarketingService",
     "PatientService",
     "ReferrerConflictService",
@@ -19,3 +21,4 @@ __all__ = [
     "safe_draft_from_task",
     "task_to_out",
 ]
+

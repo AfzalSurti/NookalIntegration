@@ -143,6 +143,9 @@ class ReferrerConflictService:
                 "name": cand.get("name"),
                 "provider_number": cand.get("provider_number"),
             }
+            if not hasattr(self._nookal, "upsert_referrer"):
+                self._store.conflicts.append(item)
+                raise NotImplementedError("Nookal API v2 does not expose referrer write endpoints; referrers are managed locally.")
             try:
                 updated = self._nookal.upsert_referrer(payload)
             except (KillSwitchActive, NookalError):
@@ -182,6 +185,9 @@ class ReferrerConflictService:
                 "name": cand.get("name"),
                 "provider_number": cand.get("provider_number"),
             }
+            if not hasattr(self._nookal, "upsert_referrer"):
+                self._store.new_pending.append(item)
+                raise NotImplementedError("Nookal API v2 does not expose referrer write endpoints; referrers are managed locally.")
             try:
                 created = self._nookal.upsert_referrer(payload)
             except (KillSwitchActive, NookalError):

@@ -60,8 +60,13 @@ class ReferralThankYouWorkflow(BaseWorkflow):
         try:
             referral = get_referral(referral_id)
             patient = ctx.nookal.get_patient(referral.patient_id)
-            referrers = {r.referrer_id: r for r in ctx.nookal.list_referrers()}
-            referrer = referrers.get(referral.referrer_id)
+            if hasattr(ctx.nookal, "list_referrers"):
+                referrers = {r.referrer_id: r for r in ctx.nookal.list_referrers()}
+                referrer = referrers.get(referral.referrer_id)
+            else:
+                referrer = None
+        except NotImplementedError:
+            referrer = None
         except NookalError as exc:
             ctx.audit_event(
                 "referral_thank_you.lookup_failed",

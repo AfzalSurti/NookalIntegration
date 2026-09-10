@@ -149,4 +149,186 @@
     </table>
   </div>
 </div>
+
+<div class="card" style="margin-top: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Cases ({{ patient.cases|length }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Case ID</th>
+          <th>Case Name</th>
+          <th>Case #</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Closed</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in patient.cases %}
+        <tr>
+          <td><code>{{ c.case_id }}</code></td>
+          <td><strong>{{ c.case_name or "—" }}</strong></td>
+          <td>{{ c.case_number or "—" }}</td>
+          <td>
+            {% if c.status == "Open" or c.status == "open" %}
+              <span class="badge badge-success">Open</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ c.status or "—" }}</span>
+            {% endif %}
+          </td>
+          <td>{{ c.date_created or "—" }}</td>
+          <td>{{ c.closed_date or "—" }}</td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="6">
+            <div class="empty-state">
+              <div class="empty-state-title">No cases found</div>
+              <div class="empty-state-text">No clinical cases recorded for this patient.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-top: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Treatment Notes ({{ patient.treatment_notes|length }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Note ID</th>
+          <th>Date</th>
+          <th>Practitioner</th>
+          <th>Appointment</th>
+          <th>Notes Preview</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for n in patient.treatment_notes %}
+        <tr>
+          <td><code>{{ n.note_id }}</code></td>
+          <td>{{ n.date or "—" }}</td>
+          <td>{{ n.practitioner_id or "—" }}</td>
+          <td><code>{{ n.appointment_id or "—" }}</code></td>
+          <td><span style="font-size: 0.9rem; color: var(--text-muted);">{{ n.notes or "—" }}</span></td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="5">
+            <div class="empty-state">
+              <div class="empty-state-title">No treatment notes found</div>
+              <div class="empty-state-text">No treatment notes on file for this patient.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-top: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Patient Files & Uploads ({{ patient.patient_files|length }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>File ID</th>
+          <th>Filename</th>
+          <th>Type</th>
+          <th>Date Added</th>
+          <th>Size</th>
+          <th style="text-align: right;">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for f in patient.patient_files %}
+        <tr>
+          <td><code>{{ f.file_id }}</code></td>
+          <td><strong>{{ f.name or "Unnamed File" }}</strong></td>
+          <td><span class="badge badge-neutral">{{ f.file_type or "file" }}</span></td>
+          <td>{{ f.date_added or "—" }}</td>
+          <td>{{ (f.size / 1024)|round(1) ~ " KB" if f.size else "—" }}</td>
+          <td style="text-align: right;">
+            <a href="/patients/{{ patient.patient_id }}/files/{{ f.file_id }}/url" target="_blank" class="btn btn-secondary btn-sm">Download / View</a>
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="6">
+            <div class="empty-state">
+              <div class="empty-state-title">No patient files found</div>
+              <div class="empty-state-text">No files uploaded to Nookal for this patient.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-top: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Nookal Invoices ({{ patient.invoices|length }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Invoice ID</th>
+          <th>Date</th>
+          <th>Total</th>
+          <th>Status</th>
+          <th>Void</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for inv in patient.invoices %}
+        <tr>
+          <td><code>{{ inv.invoice_id }}</code></td>
+          <td>{{ inv.date or "—" }}</td>
+          <td><strong>${{ "%.2f"|format(inv.total) if inv.total is not none else "0.00" }}</strong></td>
+          <td>
+            {% if inv.status == "Paid" or inv.status == "paid" %}
+              <span class="badge badge-success">Paid</span>
+            {% elif inv.status == "Unpaid" or inv.status == "unpaid" %}
+              <span class="badge badge-warning">Unpaid</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ inv.status or "—" }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if inv.void %}
+              <span class="badge badge-error">Voided</span>
+            {% else %}
+              <span class="badge badge-success">Valid</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="5">
+            <div class="empty-state">
+              <div class="empty-state-title">No invoices found</div>
+              <div class="empty-state-text">No Nookal invoices recorded for this patient.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}

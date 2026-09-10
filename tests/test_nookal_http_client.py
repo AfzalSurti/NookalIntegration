@@ -368,8 +368,7 @@ def test_update_appointment_uses_update_appointment_booking() -> None:
     assert body["appointment_id"] == "appt_45"
     assert body["appointment_date"] == "2026-09-25"
     assert body["start_time"] == "14:00:00"
-    assert body["status"] == "dna"
-    assert body["dna"] == "1"
+    assert body["status"] == "DNA"
 
 
 def test_cancel_appointment_uses_cancel_appointment() -> None:
@@ -505,7 +504,7 @@ def test_kill_switch_blocks_http_client_writes(tmp_path: Path, monkeypatch: pyte
             nookal.update_appointment("appt_1", status="cancelled")
 
         with pytest.raises(KillSwitchActive):
-            nookal.cancel_appointment("appt_1")
+            nookal.cancel_appointment("appt_1", patient_id="p_1")
 
         with pytest.raises(KillSwitchActive):
             nookal.rebook_appointment(
@@ -546,20 +545,12 @@ def test_nookal_envelope_error_handling() -> None:
     assert "Booking conflict detected" in str(exc_info.value)
 
 
-def test_unimplemented_endpoints_raise_not_implemented() -> None:
+def test_undocumented_endpoints_not_on_http_client() -> None:
     nookal = HttpNookalClient(config=_make_config(), client=httpx.Client())
+    assert not hasattr(nookal, "list_referrers")
+    assert not hasattr(nookal, "upsert_referrer")
+    assert not hasattr(nookal, "save_document")
 
-    with pytest.raises(NotImplementedError) as exc_info:
-        nookal.save_document("p_1", title="test.pdf", content=b"fake")
-    assert "uploadFile" in str(exc_info.value)
-
-    with pytest.raises(NotImplementedError) as exc_info:
-        nookal.list_referrers()
-    assert "referrer endpoint" in str(exc_info.value)
-
-    with pytest.raises(NotImplementedError) as exc_info:
-        nookal.upsert_referrer({"name": "Dr. Smith"})
-    assert "referrer endpoint" in str(exc_info.value)
 
 
 def test_search_patients_with_official_nookal_envelope() -> None:

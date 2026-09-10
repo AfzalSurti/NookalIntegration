@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -209,6 +209,8 @@ async def patients_page(
     svc: Annotated[PatientService, Depends(patient_service)],
     container: Annotated[DashboardContainer, Depends(get_container)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
+    q: str | None = None,
+    deceased: str | None = None,
     suburb: str | None = None,
     age_min: str | None = None,
     age_max: str | None = None,
@@ -216,6 +218,8 @@ async def patients_page(
     appointment_to: str | None = None,
     referrer_id: str | None = None,
 ) -> HTMLResponse:
+    clean_q = q.strip() if q and q.strip() else None
+    clean_deceased = int(deceased) if deceased in ("0", "1") else None
     clean_suburb = suburb.strip() if suburb and suburb.strip() else None
     clean_age_min = _parse_filter_int(age_min)
     clean_age_max = _parse_filter_int(age_max)
@@ -227,6 +231,8 @@ async def patients_page(
         actor=user.user_id,
         role=user.role,
         correlation_id=correlation_id,
+        query=clean_q,
+        deceased=clean_deceased,
         suburb=clean_suburb,
         age_min=clean_age_min,
         age_max=clean_age_max,
@@ -236,17 +242,21 @@ async def patients_page(
     )
 
     known_referrers: list[dict[str, str]] = []
-    referrers_supported = True
-    try:
-        ref_list = container.nookal.list_referrers()
-        known_referrers = [
-            {"id": r.referrer_id, "name": f"{r.name} ({r.referrer_id})" if r.name else r.referrer_id}
-            for r in ref_list
-        ]
-    except NotImplementedError:
-        referrers_supported = False
+    referrers_supported = False
+    if hasattr(container.nookal, "list_referrers"):
+        try:
+            ref_list = container.nookal.list_referrers()
+            known_referrers = [
+                {"id": r.referrer_id, "name": f"{r.name} ({r.referrer_id})" if r.name else r.referrer_id}
+                for r in ref_list
+            ]
+            referrers_supported = True
+        except (NotImplementedError, AttributeError):
+            referrers_supported = False
 
     filters = {
+        "q": clean_q or "",
+        "deceased": str(clean_deceased) if clean_deceased is not None else "",
         "suburb": clean_suburb or "",
         "age_min": str(clean_age_min) if clean_age_min is not None else "",
         "age_max": str(clean_age_max) if clean_age_max is not None else "",
@@ -296,6 +306,22 @@ async def patient_detail_page(
     )
 
 
+@router.get("/patients/{patient_id}/files/{file_id}/url")
+async def patient_file_url(
+    patient_id: str,
+    file_id: str,
+    user: Annotated[User, Depends(require_permission(Permission.PATIENT_VIEW))],
+    container: Annotated[DashboardContainer, Depends(get_container)],
+) -> RedirectResponse:
+    if not hasattr(container.nookal, "get_file_url"):
+        raise HTTPException(status_code=501, detail="Nookal file download unsupported")
+    try:
+        url = container.nookal.get_file_url(patient_id, file_id)
+        return RedirectResponse(url=url, status_code=303)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="File URL could not be retrieved") from exc
+
+
 @router.get("/appointments", response_class=HTMLResponse)
 async def appointments_page(
     request: Request,
@@ -307,10 +333,17 @@ async def appointments_page(
     date_from: str | None = None,
     date_to: str | None = None,
     patient_id: str | None = None,
+    location_id: str | None = None,
+    practitioner_id: str | None = None,
+    status: str | None = None,
 ) -> HTMLResponse:
     clean_date_from = _parse_filter_date(date_from)
     clean_date_to = _parse_filter_date(date_to)
     clean_patient = patient_id.strip() if patient_id and patient_id.strip() else None
+    clean_location = location_id.strip() if location_id and location_id.strip() else None
+    clean_practitioner = practitioner_id.strip() if practitioner_id and practitioner_id.strip() else None
+    clean_status = status.strip() if status and status.strip() else None
+
     items = svc.list_upcoming(
         actor=user.user_id,
         role=user.role,
@@ -318,12 +351,33 @@ async def appointments_page(
         date_from=clean_date_from,
         date_to=clean_date_to,
         patient_id=clean_patient,
+        location_id=clean_location,
+        practitioner_id=clean_practitioner,
+        status=clean_status,
     )
     can_change = _can(container, user.role, Permission.APPOINTMENT_CHANGE)
+
+    known_locations = []
+    if hasattr(container.nookal, "get_locations"):
+        try:
+            known_locations = container.nookal.get_locations()
+        except Exception:
+            pass
+
+    known_practitioners = []
+    if hasattr(container.nookal, "get_practitioners"):
+        try:
+            known_practitioners = container.nookal.get_practitioners()
+        except Exception:
+            pass
+
     appt_filters = {
         "date_from": clean_date_from.isoformat() if clean_date_from else "",
         "date_to": clean_date_to.isoformat() if clean_date_to else "",
         "patient_id": clean_patient or "",
+        "location_id": clean_location or "",
+        "practitioner_id": clean_practitioner or "",
+        "status": clean_status or "",
     }
     has_appt_filters = any(bool(v) for v in appt_filters.values())
     return _templates(request).TemplateResponse(
@@ -334,6 +388,8 @@ async def appointments_page(
             "filters": appt_filters,
             "has_active_filters": has_appt_filters,
             "can_change": can_change,
+            "known_locations": known_locations,
+            "known_practitioners": known_practitioners,
         }),
     )
 
@@ -445,6 +501,60 @@ async def finance_expenses_page(
     )
 
 
+@router.get("/finance/invoices", response_class=HTMLResponse)
+async def finance_invoices_page(
+    request: Request,
+    user: Annotated[User, Depends(require_permission(Permission.DOCUMENT_REVIEW))],
+    session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
+    patient_id: str | None = None,
+    status: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> HTMLResponse:
+    clean_patient = patient_id.strip() if patient_id and patient_id.strip() else None
+    clean_status = status.strip() if status and status.strip() else None
+    clean_from = date_from.strip() if date_from and date_from.strip() else None
+    clean_to = date_to.strip() if date_to and date_to.strip() else None
+
+    invoices = []
+    if hasattr(container.nookal, "get_invoices"):
+        try:
+            invoices = container.nookal.get_invoices(
+                patient_id=clean_patient,
+                status=clean_status,
+                date_from=clean_from,
+                date_to=clean_to,
+                page=1,
+                page_length=50,
+            )
+        except Exception:
+            invoices = []
+
+    filters = {
+        "patient_id": clean_patient or "",
+        "status": clean_status or "",
+        "date_from": clean_from or "",
+        "date_to": clean_to or "",
+    }
+    has_active_filters = any(bool(v) for v in filters.values())
+
+    return _templates(request).TemplateResponse(
+        request,
+        name="finance_invoices.html",
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            extra={
+                "invoices": invoices,
+                "filters": filters,
+                "has_active_filters": has_active_filters,
+            },
+        ),
+    )
+
+
 @router.get("/cases", response_class=HTMLResponse)
 async def cases_page(
     request: Request,
@@ -453,7 +563,14 @@ async def cases_page(
     container: Annotated[DashboardContainer, Depends(get_container)],
 ) -> HTMLResponse:
     tracker = getattr(container, "case_tracking", None)
-    cases = tracker.flagged_cases() if tracker is not None else []
+    flagged_cases = tracker.flagged_cases() if tracker is not None else []
+    nookal_cases = []
+    if hasattr(container.nookal, "get_all_cases"):
+        try:
+            nookal_cases = container.nookal.get_all_cases(page=1, page_length=50)
+        except Exception:
+            nookal_cases = []
+
     return _templates(request).TemplateResponse(
         request,
         name="cases.html",
@@ -462,7 +579,8 @@ async def cases_page(
             user,
             session,
             extra={
-                "cases": cases,
+                "cases": flagged_cases,
+                "nookal_cases": nookal_cases,
                 "can_acknowledge": _can(container, user.role, Permission.CASE_ACKNOWLEDGE),
             },
         ),

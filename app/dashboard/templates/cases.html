@@ -68,6 +68,55 @@
   </div>
 </div>
 
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Nookal Clinical Cases ({{ nookal_cases|length }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Case ID</th>
+          <th>Patient</th>
+          <th>Case Name</th>
+          <th>Case Number</th>
+          <th>Status</th>
+          <th>Date Created</th>
+          <th>Closed Date</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for nc in nookal_cases %}
+        <tr>
+          <td><code>{{ nc.case_id }}</code></td>
+          <td><a href="/patients/{{ nc.patient_id }}"><strong>{{ nc.patient_id }}</strong></a></td>
+          <td><strong>{{ nc.case_name or "—" }}</strong></td>
+          <td>{{ nc.case_number or "—" }}</td>
+          <td>
+            {% if nc.status == "Open" or nc.status == "open" %}
+              <span class="badge badge-success">Open</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ nc.status or "—" }}</span>
+            {% endif %}
+          </td>
+          <td>{{ nc.date_created or "—" }}</td>
+          <td>{{ nc.closed_date or "—" }}</td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="7">
+            <div class="empty-state">
+              <div class="empty-state-title">No Nookal cases found</div>
+              <div class="empty-state-text">No cases returned from Nookal API.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <div class="info-banner">
   Protocol Notice: Case flags are automatically raised when patients exceed care plan session thresholds. Acknowledging a flag logs clinician sign-off in the audit trail.
 </div>

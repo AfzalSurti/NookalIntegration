@@ -20,7 +20,7 @@
     {% endif %}
   </div>
   <form method="get" action="/appointments" id="appointment-filter-form">
-    <div class="form-row" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+    <div class="form-row" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
       <div class="form-group">
         <label for="date_from">Date From</label>
         <input id="date_from" name="date_from" type="date" value="{{ filters.date_from }}">
@@ -28,6 +28,44 @@
       <div class="form-group">
         <label for="date_to">Date To</label>
         <input id="date_to" name="date_to" type="date" value="{{ filters.date_to }}">
+      </div>
+      <div class="form-group">
+        <label for="status">Status</label>
+        <select id="status" name="status">
+          <option value="" {% if not filters.status %}selected{% endif %}>Active / Upcoming</option>
+          <option value="all" {% if filters.status == "all" %}selected{% endif %}>All (including Cancelled)</option>
+          <option value="booked" {% if filters.status == "booked" %}selected{% endif %}>Booked</option>
+          <option value="arrived" {% if filters.status == "arrived" %}selected{% endif %}>Arrived</option>
+          <option value="completed" {% if filters.status == "completed" %}selected{% endif %}>Completed</option>
+          <option value="cancelled" {% if filters.status == "cancelled" %}selected{% endif %}>Cancelled</option>
+          <option value="dna" {% if filters.status == "dna" %}selected{% endif %}>DNA (Did Not Attend)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="location_id">Location</label>
+        {% if known_locations %}
+        <select id="location_id" name="location_id">
+          <option value="">All Locations</option>
+          {% for loc in known_locations %}
+          <option value="{{ loc.location_id }}" {% if filters.location_id == loc.location_id %}selected{% endif %}>{{ loc.name }}</option>
+          {% endfor %}
+        </select>
+        {% else %}
+        <input id="location_id" name="location_id" value="{{ filters.location_id }}" placeholder="Location ID">
+        {% endif %}
+      </div>
+      <div class="form-group">
+        <label for="practitioner_id">Practitioner</label>
+        {% if known_practitioners %}
+        <select id="practitioner_id" name="practitioner_id">
+          <option value="">All Practitioners</option>
+          {% for pr in known_practitioners %}
+          <option value="{{ pr.practitioner_id }}" {% if filters.practitioner_id == pr.practitioner_id %}selected{% endif %}>{{ pr.first_name }} {{ pr.last_name or "" }}</option>
+          {% endfor %}
+        </select>
+        {% else %}
+        <input id="practitioner_id" name="practitioner_id" value="{{ filters.practitioner_id }}" placeholder="Practitioner ID">
+        {% endif %}
       </div>
       <div class="form-group">
         <label for="patient_id">Patient ID</label>
@@ -55,6 +93,8 @@
         <th>Date & Time</th>
         <th>Status</th>
         <th>Practitioner</th>
+        <th>Location</th>
+        <th>Type</th>
         {% if can_change %}
         <th style="text-align: right;">Actions</th>
         {% endif %}
@@ -82,6 +122,8 @@
           {% endif %}
         </td>
         <td>{{ a.practitioner_id or "—" }}</td>
+        <td>{{ a.location_id or "—" }}</td>
+        <td>{{ a.appointment_type or "—" }}</td>
         {% if can_change %}
         <td style="text-align: right;">
           {% if a.status != "cancelled" %}
@@ -97,7 +139,7 @@
       </tr>
     {% else %}
       <tr>
-        <td colspan="{% if can_change %}6{% else %}5{% endif %}">
+        <td colspan="{% if can_change %}8{% else %}7{% endif %}">
           <div class="empty-state">
             <div class="empty-state-title">No upcoming appointments</div>
             <div class="empty-state-text">No appointments found matching your criteria.</div>

@@ -6,10 +6,14 @@ from typing import Any, Callable
 
 from app.dashboard.schemas import (
     AppointmentSummary,
+    CaseOut,
     DocumentMetaOut,
     PatientDetail,
+    PatientFileOut,
+    PatientInvoiceOut,
     PatientSearchResponse,
     PatientSummary,
+    TreatmentNoteOut,
 )
 from app.letters import DocumentStore
 from app.nookal_client import NookalClient, PatientRef
@@ -59,6 +63,8 @@ class PatientService:
         actor: str,
         role: str,
         correlation_id: str,
+        query: str | None = None,
+        deceased: int | None = None,
         suburb: str | None = None,
         age_min: int | None = None,
         age_max: int | None = None,
@@ -71,6 +77,8 @@ class PatientService:
         page = max(1, page)
         page_size = min(max(1, page_size), 100)
         results = self._nookal.search_patients(
+            fuzzy_search=query,
+            deceased=deceased,
             suburb=suburb,
             age_min=age_min,
             age_max=age_max,
@@ -96,6 +104,8 @@ class PatientService:
                 "role": role,
                 "result_count": total,
                 "page": page,
+                "has_query": query is not None,
+                "has_deceased": deceased is not None,
                 "has_suburb": suburb is not None,
                 "has_age": age_min is not None or age_max is not None,
                 "has_appt_range": appointment_from is not None or appointment_to is not None,
@@ -142,6 +152,80 @@ class PatientService:
                     )
                 )
 
+        cases_out: list[CaseOut] = []
+        if hasattr(self._nookal, "get_cases"):
+            try:
+                cases = self._nookal.get_cases(patient_id)
+                cases_out = [
+                    CaseOut(
+                        case_id=c.case_id,
+                        patient_id=c.patient_id,
+                        case_name=c.case_name,
+                        case_number=c.case_number,
+                        status=c.status,
+                        date_created=c.date_created,
+                        closed_date=c.closed_date,
+                    )
+                    for c in cases
+                ]
+            except Exception:
+                cases_out = []
+
+        notes_out: list[TreatmentNoteOut] = []
+        if hasattr(self._nookal, "get_treatment_notes"):
+            try:
+                notes = self._nookal.get_treatment_notes(patient_id)
+                notes_out = [
+                    TreatmentNoteOut(
+                        note_id=n.note_id,
+                        patient_id=n.patient_id,
+                        case_id=n.case_id,
+                        practitioner_id=n.practitioner_id,
+                        date=n.date,
+                        notes=n.notes,
+                        appointment_id=n.appointment_id,
+                    )
+                    for n in notes
+                ]
+            except Exception:
+                notes_out = []
+
+        files_out: list[PatientFileOut] = []
+        if hasattr(self._nookal, "get_patient_files"):
+            try:
+                files = self._nookal.get_patient_files(patient_id)
+                files_out = [
+                    PatientFileOut(
+                        file_id=f.file_id,
+                        patient_id=f.patient_id,
+                        name=f.name,
+                        file_type=f.file_type,
+                        date_added=f.date_added,
+                        size=f.size,
+                    )
+                    for f in files
+                ]
+            except Exception:
+                files_out = []
+
+        invoices_out: list[PatientInvoiceOut] = []
+        if hasattr(self._nookal, "get_invoices"):
+            try:
+                invoices = self._nookal.get_invoices(patient_id=patient_id)
+                invoices_out = [
+                    PatientInvoiceOut(
+                        invoice_id=inv.invoice_id,
+                        patient_id=inv.patient_id,
+                        date=inv.date,
+                        total=inv.total,
+                        status=inv.status,
+                        void=inv.void,
+                    )
+                    for inv in invoices
+                ]
+            except Exception:
+                invoices_out = []
+
         self._audit(
             actor=actor,
             action="dashboard.patient_view",
@@ -152,6 +236,10 @@ class PatientService:
                 "correlation_id": correlation_id,
                 "role": role,
                 "appointment_count": len(appt_out),
+                "case_count": len(cases_out),
+                "notes_count": len(notes_out),
+                "file_count": len(files_out),
+                "invoice_count": len(invoices_out),
             },
         )
 
@@ -166,4 +254,8 @@ class PatientService:
             last_appointment_date=patient.last_appointment_date,
             appointments=appt_out,
             documents=docs,
+            cases=cases_out,
+            treatment_notes=notes_out,
+            patient_files=files_out,
+            invoices=invoices_out,
         )
