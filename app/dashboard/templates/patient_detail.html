@@ -12,37 +12,121 @@
 
 <div class="card" style="margin-bottom: var(--sp-6);">
   <div class="card-header">
-    <div class="card-title">Patient Information</div>
+    <div class="card-title">Patient Information & Demographics</div>
+    {% if patient.deceased %}
+      <span class="badge badge-error">Deceased</span>
+    {% else %}
+      <span class="badge badge-success">Active Patient</span>
+    {% endif %}
   </div>
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--sp-4);">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sp-4);">
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Full Name</div>
-      <div style="font-size: 1rem; font-weight: 600; margin-top: var(--sp-1);">{{ patient.display_name or "—" }}</div>
+      <div style="font-size: 1.1rem; font-weight: 700; margin-top: var(--sp-1);">{{ patient.display_name or "—" }}</div>
+      {% if patient.nickname %}
+        <div style="font-size: 0.85rem; color: var(--text-muted);">Nickname: "{{ patient.nickname }}"</div>
+      {% endif %}
+    </div>
+    {% if patient.first_name or patient.last_name %}
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Name Breakdown</div>
+      <div style="font-size: 0.95rem; margin-top: var(--sp-1);">
+        {{ patient.first_name or "" }} {{ patient.middle_name or "" }} {{ patient.last_name or "" }}
+      </div>
+    </div>
+    {% endif %}
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Date of Birth & Age</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {{ patient.date_of_birth or "—" }}
+        {% if patient.age is not none %}
+          <strong>({{ patient.age }} yrs)</strong>
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Gender</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.gender or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Phone</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {% if patient.phone %}
+          <a href="tel:{{ patient.phone }}"><strong>{{ patient.phone }}</strong></a>
+        {% else %}
+          —
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Email</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {% if patient.email %}
+          <a href="mailto:{{ patient.email }}">{{ patient.email }}</a>
+        {% else %}
+          —
+        {% endif %}
+      </div>
     </div>
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Suburb</div>
       <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.suburb or "—" }}</div>
     </div>
+    {% if patient.address %}
     <div>
-      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Age</div>
-      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.age if patient.age is not none else "—" }}</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Physical Address</div>
+      <div style="font-size: 0.95rem; margin-top: var(--sp-1);">
+        {% if patient.address is mapping %}
+          {{ patient.address.get('address1') or patient.address.get('street') or '' }} {{ patient.address.get('city') or patient.address.get('suburb') or '' }} {{ patient.address.get('state') or '' }} {{ patient.address.get('postcode') or '' }}
+        {% else %}
+          {{ patient.address }}
+        {% endif %}
+      </div>
     </div>
+    {% endif %}
+    {% if patient.postal_address %}
     <div>
-      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Phone</div>
-      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.phone or "—" }}</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Postal Address</div>
+      <div style="font-size: 0.95rem; margin-top: var(--sp-1);">
+        {% if patient.postal_address is mapping %}
+          {{ patient.postal_address.get('address1') or '' }} {{ patient.postal_address.get('city') or '' }} {{ patient.postal_address.get('state') or '' }} {{ patient.postal_address.get('postcode') or '' }}
+        {% else %}
+          {{ patient.postal_address }}
+        {% endif %}
+      </div>
     </div>
-    <div>
-      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Email</div>
-      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.email or "—" }}</div>
-    </div>
+    {% endif %}
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Referring Doctor</div>
-      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.referrer_id or "—" }}</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        <strong>{{ patient.referrer_name or patient.referrer_id or "—" }}</strong>
+        {% if patient.referrer_id and patient.referrer_name %}
+          <span style="font-size: 0.8rem; color: var(--text-muted);">(ID: {{ patient.referrer_id }})</span>
+        {% endif %}
+      </div>
     </div>
+    {% if patient.online_code %}
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Online Booking Code</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);"><code>{{ patient.online_code }}</code></div>
+    </div>
+    {% endif %}
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Last Appointment</div>
       <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ patient.last_appointment_date or "—" }}</div>
     </div>
+    {% if patient.date_created %}
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Profile Created</div>
+      <div style="font-size: 0.9rem; color: var(--text-muted); margin-top: var(--sp-1);">{{ patient.date_created }}</div>
+    </div>
+    {% endif %}
+    {% if patient.date_modified %}
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Last Modified</div>
+      <div style="font-size: 0.9rem; color: var(--text-muted); margin-top: var(--sp-1);">{{ patient.date_modified }}</div>
+    </div>
+    {% endif %}
   </div>
 </div>
 
@@ -58,12 +142,15 @@
           <th>Date & Time</th>
           <th>Status</th>
           <th>Practitioner</th>
+          <th style="text-align: right;">Action</th>
         </tr>
       </thead>
       <tbody>
       {% for a in patient.appointments %}
         <tr>
-          <td><code>{{ a.appointment_id }}</code></td>
+          <td>
+            <a href="/appointments/{{ a.appointment_id }}"><code>{{ a.appointment_id }}</code></a>
+          </td>
           <td><strong>{{ a.starts_at }}</strong></td>
           <td>
             {% if a.status == "booked" %}
@@ -79,10 +166,13 @@
             {% endif %}
           </td>
           <td>{{ a.practitioner_id or "—" }}</td>
+          <td style="text-align: right;">
+            <a href="/appointments/{{ a.appointment_id }}" class="btn btn-secondary btn-sm">View</a>
+          </td>
         </tr>
       {% else %}
         <tr>
-          <td colspan="4">
+          <td colspan="5">
             <div class="empty-state">
               <div class="empty-state-title">No appointments found</div>
               <div class="empty-state-text">No recorded appointments for this patient.</div>
@@ -362,4 +452,15 @@
   </div>
   {% endif %}
 </div>
+
+{% if patient.raw %}
+<details style="margin-top: var(--sp-6);">
+  <summary class="btn btn-secondary btn-sm" style="cursor: pointer;">Show Raw Nookal Patient Data</summary>
+  <div class="card" style="margin-top: var(--sp-3);">
+    <div style="padding: var(--sp-4);">
+      <pre style="white-space: pre-wrap; font-size: 0.85rem; background: var(--bg); padding: var(--sp-4); border-radius: var(--radius-md); overflow-x: auto;">{{ patient.raw | tojson(indent=2) }}</pre>
+    </div>
+  </div>
+</details>
+{% endif %}
 {% endblock %}

@@ -3,13 +3,16 @@
 {% block topbar_title %}Invoice Detail{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="flex gap-3" style="align-items: center;">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
     {% if patient_id and patient_id != "0" %}
       <a href="/patients/{{ patient_id }}" class="btn btn-secondary btn-sm">← Back to Patient</a>
     {% else %}
       <a href="/finance/invoices" class="btn btn-secondary btn-sm">← Back to Invoices</a>
     {% endif %}
     <h1 class="page-title">Invoice #{{ invoice.invoice_id }}</h1>
+    {% if invoice.reference %}
+      <span class="badge badge-neutral">Ref: {{ invoice.reference }}</span>
+    {% endif %}
     {% if invoice.void %}
       <span class="badge badge-error">Voided</span>
     {% elif invoice.status == "Paid" or invoice.status == "paid" %}
@@ -27,29 +30,97 @@
   </div>
 </div>
 
+<!-- Financial Summary KPIs -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-6);">
+  <div class="card" style="padding: var(--sp-4);">
+    <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Subtotal (excl tax)</div>
+    <div style="font-size: 1.25rem; font-weight: 600; margin-top: var(--sp-1); color: var(--text);">
+      ${{ "%.2f"|format(calc_subtotal) }}
+    </div>
+  </div>
+  <div class="card" style="padding: var(--sp-4);">
+    <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Tax / GST</div>
+    <div style="font-size: 1.25rem; font-weight: 600; margin-top: var(--sp-1); color: var(--text);">
+      ${{ "%.2f"|format(calc_tax) }}
+    </div>
+  </div>
+  <div class="card" style="padding: var(--sp-4); border: 2px solid var(--brand); background: var(--bg-card);">
+    <div style="font-size: 0.8rem; color: var(--brand); text-transform: uppercase; font-weight: 700;">Invoice Total</div>
+    <div style="font-size: 1.6rem; font-weight: 800; margin-top: var(--sp-1); color: var(--brand);">
+      ${{ "%.2f"|format(calc_total) }}
+    </div>
+  </div>
+  <div class="card" style="padding: var(--sp-4);">
+    <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Amount Paid</div>
+    <div style="font-size: 1.25rem; font-weight: 600; margin-top: var(--sp-1); color: var(--success, #10b981);">
+      ${{ "%.2f"|format(calc_paid) }}
+    </div>
+  </div>
+  <div class="card" style="padding: var(--sp-4);">
+    <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Balance Due</div>
+    <div style="font-size: 1.25rem; font-weight: 700; margin-top: var(--sp-1); {% if calc_balance > 0 %}color: var(--error, #ef4444);{% else %}color: var(--text-muted);{% endif %}">
+      ${{ "%.2f"|format(calc_balance) }}
+    </div>
+  </div>
+</div>
+
+<!-- Invoice Information Details Card -->
 <div class="card" style="margin-bottom: var(--sp-6);">
   <div class="card-header">
     <div class="card-title">Invoice Information</div>
   </div>
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--sp-4);">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sp-4);">
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Invoice ID</div>
       <div style="font-size: 1rem; margin-top: var(--sp-1);"><code>{{ invoice.invoice_id }}</code></div>
     </div>
     <div>
-      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Patient ID</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Reference / Invoice #</div>
+      <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ invoice.reference or invoice.raw.reference or invoice.raw.invoiceNumber or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Patient</div>
       <div style="font-size: 1rem; margin-top: var(--sp-1);">
-        <a href="/patients/{{ invoice.patient_id }}">{{ invoice.patient_id }}</a>
+        <a href="/patients/{{ invoice.patient_id }}">
+          <strong>{{ patient_name or ("Patient #" ~ invoice.patient_id) }}</strong>
+        </a>
+        <span style="font-size: 0.85rem; color: var(--text-muted);">(ID: {{ invoice.patient_id }})</span>
       </div>
     </div>
     <div>
-      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Date</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Issue Date</div>
       <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ invoice.date or "—" }}</div>
     </div>
     <div>
-      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Total</div>
-      <div style="font-size: 1.1rem; font-weight: 700; margin-top: var(--sp-1); color: var(--brand);">
-        ${{ "%.2f"|format(invoice.total) if invoice.total is not none else "0.00" }}
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Due Date</div>
+      <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ invoice.due_date or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Location</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {{ location_name or invoice.location_id or "—" }}
+        {% if invoice.location_id and location_name %}
+          <span style="font-size: 0.8rem; color: var(--text-muted);">(ID: {{ invoice.location_id }})</span>
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Practitioner</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {{ practitioner_name or invoice.practitioner_id or "—" }}
+        {% if invoice.practitioner_id and practitioner_name %}
+          <span style="font-size: 0.8rem; color: var(--text-muted);">(ID: {{ invoice.practitioner_id }})</span>
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Case ID</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {% if invoice.case_id %}
+          <code>{{ invoice.case_id }}</code>
+        {% else %}
+          —
+        {% endif %}
       </div>
     </div>
     <div>
@@ -61,6 +132,8 @@
           <span class="badge badge-success">Paid</span>
         {% elif invoice.status == "Unpaid" or invoice.status == "unpaid" %}
           <span class="badge badge-warning">Unpaid</span>
+        {% elif invoice.status == "Partial" or invoice.status == "partial" or invoice.status == "Partially Paid" %}
+          <span class="badge badge-info">{{ invoice.status }}</span>
         {% else %}
           <span class="badge badge-neutral">{{ invoice.status or "—" }}</span>
         {% endif %}
@@ -69,18 +142,29 @@
   </div>
 </div>
 
+{% if invoice.notes %}
 <div class="card" style="margin-bottom: var(--sp-6);">
   <div class="card-header">
-    <div class="card-title">Line Items ({{ entries|length }})</div>
+    <div class="card-title">Invoice Notes & Comments</div>
+  </div>
+  <div style="padding: var(--sp-4); font-size: 0.95rem; white-space: pre-wrap; line-height: 1.6;">{{ invoice.notes }}</div>
+</div>
+{% endif %}
+
+<!-- Line Items Table -->
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Line Items & Entries ({{ entries|length }})</div>
   </div>
   <div class="table-wrapper">
     <table>
       <thead>
         <tr>
           <th>Entry ID</th>
+          <th>Item Code</th>
           <th>Description</th>
           <th style="text-align: right;">Qty</th>
-          <th style="text-align: right;">Price</th>
+          <th style="text-align: right;">Unit Price</th>
           <th style="text-align: right;">Tax</th>
           <th style="text-align: right;">Subtotal</th>
         </tr>
@@ -89,25 +173,28 @@
       {% for entry in entries %}
         <tr>
           <td><code>{{ entry.entry_id }}</code></td>
+          <td>{{ entry.item_id or "—" }}</td>
           <td><strong>{{ entry.description or "—" }}</strong></td>
           <td style="text-align: right;">{{ entry.quantity if entry.quantity is not none else "1" }}</td>
-          <td style="text-align: right;">${{ "%.2f"|format(entry.price) if entry.price is not none else "—" }}</td>
+          <td style="text-align: right;">${{ "%.2f"|format(entry.price) if entry.price is not none else "0.00" }}</td>
           <td style="text-align: right;">${{ "%.2f"|format(entry.tax) if entry.tax is not none else "0.00" }}</td>
           <td style="text-align: right;">
             <strong>
-              {% if entry.price is not none and entry.quantity is not none %}
-                ${{ "%.2f"|format(entry.price * entry.quantity) }}
+              {% if entry.total is not none %}
+                ${{ "%.2f"|format(entry.total) }}
+              {% elif entry.price is not none and entry.quantity is not none %}
+                ${{ "%.2f"|format(entry.price * entry.quantity + (entry.tax or 0.0)) }}
               {% elif entry.price is not none %}
                 ${{ "%.2f"|format(entry.price) }}
               {% else %}
-                —
+                $0.00
               {% endif %}
             </strong>
           </td>
         </tr>
       {% else %}
         <tr>
-          <td colspan="6">
+          <td colspan="7">
             <div class="empty-state">
               <div class="empty-state-title">No line items</div>
               <div class="empty-state-text">No detailed entries were returned for this invoice.</div>
@@ -116,42 +203,58 @@
         </tr>
       {% endfor %}
       </tbody>
-      {% if entries %}
       <tfoot>
+        <tr style="border-top: 2px solid var(--border);">
+          <td colspan="6" style="text-align: right; padding-right: var(--sp-4); font-weight: 600;">Subtotal:</td>
+          <td style="text-align: right; font-weight: 600;">${{ "%.2f"|format(calc_subtotal) }}</td>
+        </tr>
+        <tr>
+          <td colspan="6" style="text-align: right; padding-right: var(--sp-4); font-weight: 600;">Tax / GST:</td>
+          <td style="text-align: right; font-weight: 600;">${{ "%.2f"|format(calc_tax) }}</td>
+        </tr>
+        <tr style="font-weight: 800; font-size: 1.15rem; background: var(--bg-hover);">
+          <td colspan="6" style="text-align: right; padding-right: var(--sp-4); color: var(--brand);">Total Invoice Amount:</td>
+          <td style="text-align: right; color: var(--brand);">${{ "%.2f"|format(calc_total) }}</td>
+        </tr>
+        <tr>
+          <td colspan="6" style="text-align: right; padding-right: var(--sp-4); font-weight: 600; color: var(--success, #10b981);">Amount Paid:</td>
+          <td style="text-align: right; font-weight: 600; color: var(--success, #10b981);">${{ "%.2f"|format(calc_paid) }}</td>
+        </tr>
         <tr style="font-weight: 700; font-size: 1.05rem;">
-          <td colspan="5" style="text-align: right; padding-right: var(--sp-4);">Invoice Total:</td>
-          <td style="text-align: right; color: var(--brand);">
-            ${{ "%.2f"|format(invoice.total) if invoice.total is not none else "0.00" }}
-          </td>
+          <td colspan="6" style="text-align: right; padding-right: var(--sp-4); color: {% if calc_balance > 0 %}var(--error, #ef4444){% else %}var(--text-muted){% endif %};">Balance Due:</td>
+          <td style="text-align: right; color: {% if calc_balance > 0 %}var(--error, #ef4444){% else %}var(--text-muted){% endif %};">${{ "%.2f"|format(calc_balance) }}</td>
         </tr>
       </tfoot>
-      {% endif %}
     </table>
   </div>
 </div>
 
-{% if invoice.expanded and invoice.entries %}
+{% if payments %}
 <div class="card" style="margin-bottom: var(--sp-6);">
   <div class="card-header">
-    <div class="card-title">Embedded Entries (from expanded invoice)</div>
+    <div class="card-title">Payments & Adjustments Received ({{ payments|length }})</div>
   </div>
   <div class="table-wrapper">
     <table>
       <thead>
         <tr>
-          <th>Entry ID</th>
-          <th>Description</th>
-          <th style="text-align: right;">Price</th>
-          <th style="text-align: right;">Tax</th>
+          <th>Payment ID / Ref</th>
+          <th>Date</th>
+          <th>Method</th>
+          <th>Notes</th>
+          <th style="text-align: right;">Amount</th>
         </tr>
       </thead>
       <tbody>
-      {% for entry in invoice.entries %}
+      {% for p in payments %}
         <tr>
-          <td><code>{{ entry.entry_id }}</code></td>
-          <td>{{ entry.description or "—" }}</td>
-          <td style="text-align: right;">${{ "%.2f"|format(entry.price) if entry.price is not none else "—" }}</td>
-          <td style="text-align: right;">${{ "%.2f"|format(entry.tax) if entry.tax is not none else "0.00" }}</td>
+          <td><code>{{ p.ID or p.id or p.payment_id or "—" }}</code></td>
+          <td>{{ p.date or p.dateCreated or "—" }}</td>
+          <td>{{ p.method or p.paymentMethod or "—" }}</td>
+          <td>{{ p.notes or p.description or "—" }}</td>
+          <td style="text-align: right; font-weight: 600; color: var(--success, #10b981);">
+            ${{ "%.2f"|format(p.amount|float if p.amount else 0.0) }}
+          </td>
         </tr>
       {% endfor %}
       </tbody>
@@ -162,7 +265,7 @@
 
 {% if invoice.raw %}
 <details style="margin-top: var(--sp-6);">
-  <summary class="btn btn-secondary btn-sm" style="cursor: pointer;">Show Raw Data</summary>
+  <summary class="btn btn-secondary btn-sm" style="cursor: pointer;">Show Raw Nookal Data</summary>
   <div class="card" style="margin-top: var(--sp-3);">
     <div style="padding: var(--sp-4);">
       <pre style="white-space: pre-wrap; font-size: 0.85rem; background: var(--bg); padding: var(--sp-4); border-radius: var(--radius-md); overflow-x: auto;">{{ invoice.raw | tojson(indent=2) }}</pre>
@@ -173,7 +276,7 @@
 
 <style>
   @media print {
-    #print-btn, .sidebar, .topbar, details { display: none !important; }
+    #print-btn, .sidebar, .topbar, details, .btn { display: none !important; }
     .main-content { margin: 0 !important; padding: 0 !important; }
     .card { box-shadow: none !important; border: 1px solid #ddd !important; }
   }

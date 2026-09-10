@@ -79,7 +79,10 @@
         <tbody>
         {% for a in upcoming_appointments %}
           <tr>
-            <td><a href="/patients/{{ a.patient_id }}">{{ a.patient_id }}</a></td>
+            <td>
+              <a href="/patients/{{ a.patient_id }}"><strong>{{ a.patient_id }}</strong></a>
+              <div><a href="/appointments/{{ a.appointment_id }}" style="font-size: 0.8rem;"><code>{{ a.appointment_id }}</code></a></div>
+            </td>
             <td>{{ a.starts_at.strftime('%d %b %Y %H:%M') if a.starts_at else '—' }}</td>
             <td>
               {% if a.status and a.status.lower() == 'booked' %}

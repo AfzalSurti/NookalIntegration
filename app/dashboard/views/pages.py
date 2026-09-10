@@ -149,16 +149,23 @@ async def logout_page(
     return resp
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_model=None)
 async def overview(
     request: Request,
-    user: Annotated[User, Depends(require_user)],
     session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     sys_svc: Annotated[SystemService, Depends(system_service)],
     appt_svc: Annotated[AppointmentService, Depends(appointment_service)],
     appr_svc: Annotated[ApprovalService, Depends(approval_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
-) -> HTMLResponse:
+) -> HTMLResponse | RedirectResponse:
+    # Redirect unauthenticated users to the login page
+    if session is None:
+        return RedirectResponse("/login", status_code=303)
+    user = container.auth_backend.get_user(session.user_id)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+
     status = sys_svc.status(actor=user.user_id, role=user.role, correlation_id=correlation_id)
     upcoming = appt_svc.list_upcoming(
         actor=user.user_id, role=user.role, correlation_id=correlation_id,
@@ -416,6 +423,7 @@ async def treatment_note_detail_page(
     user: Annotated[User, Depends(require_permission(Permission.PATIENT_VIEW))],
     session: Annotated[Session | None, Depends(get_session)],
     svc: Annotated[TreatmentNoteService, Depends(treatment_note_service)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> HTMLResponse:
     note = svc.get_note(
@@ -427,14 +435,144 @@ async def treatment_note_detail_page(
     )
     if note is None:
         raise HTTPException(status_code=404, detail="Treatment note not found")
+
+    # Resolve practitioner name
+    practitioner_name = None
+    if note.practitioner_id and hasattr(container.nookal, "get_practitioners"):
+        try:
+            for pr in container.nookal.get_practitioners():
+                if str(pr.practitioner_id) == str(note.practitioner_id):
+                    practitioner_name = f"{pr.first_name or ''} {pr.last_name or ''}".strip()
+                    break
+        except Exception:
+            pass
+
+    # Resolve patient name
+    patient_name = None
+    if hasattr(container.nookal, "get_patient"):
+        try:
+            pat = container.nookal.get_patient(patient_id)
+            if pat:
+                patient_name = f"{pat.first_name or ''} {pat.last_name or ''}".strip() or None
+        except Exception:
+            pass
+
+    # Resolve location from appointment if available
+    location_name = None
+
+    # Extract structured note content from raw data
+    note_sections = []
+    if note.raw:
+        raw = note.raw
+        # Nookal treatment notes may have structured fields/answers
+        # Extract 'answers' dict (question -> answer pairs)
+        if isinstance(raw.get("answers"), dict):
+            for key, val in raw["answers"].items():
+                note_sections.append({"label": str(key), "value": str(val) if val else "—"})
+        # Extract 'fields' list (structured form fields)
+        if isinstance(raw.get("fields"), list):
+            for fld in raw["fields"]:
+                if isinstance(fld, dict):
+                    label = fld.get("label") or fld.get("name") or fld.get("field_name") or ""
+                    value = fld.get("value") or fld.get("answer") or fld.get("text") or ""
+                    if label:
+                        note_sections.append({"label": str(label), "value": str(value) if value else "—"})
+        # Extract 'sections' list
+        if isinstance(raw.get("sections"), list):
+            for sec in raw["sections"]:
+                if isinstance(sec, dict):
+                    title = sec.get("title") or sec.get("heading") or sec.get("name") or ""
+                    content = sec.get("content") or sec.get("text") or sec.get("value") or ""
+                    if title or content:
+                        note_sections.append({"label": str(title) if title else "Section", "value": str(content) if content else "—"})
+
+    # Get HTML content if available
+    html_content = None
+    if note.raw:
+        html_content = note.raw.get("html") or note.raw.get("HTML") or note.raw.get("content_html")
+
     return _templates(request).TemplateResponse(
         request,
         name="treatment_note_detail.html",
         context=_base_ctx(request, user, session, extra={
             "note": note,
             "patient_id": patient_id,
+            "practitioner_name": practitioner_name,
+            "patient_name": patient_name,
+            "location_name": location_name,
+            "note_sections": note_sections,
+            "html_content": html_content,
         }),
     )
+
+
+def _resolve_invoice_context(
+    invoice: Any,
+    entries: list[Any],
+    container: DashboardContainer,
+    svc: InvoiceService,
+    user: User,
+    correlation_id: str,
+) -> dict[str, Any]:
+    patient_name = None
+    if invoice.patient_id:
+        try:
+            p = container.nookal.get_patient(invoice.patient_id)
+            patient_name = p.display_name or f"{p.first_name or ''} {p.last_name or ''}".strip()
+        except Exception:
+            patient_name = None
+
+    location_name = None
+    if invoice.location_id and hasattr(container.nookal, "get_locations"):
+        try:
+            for loc in container.nookal.get_locations():
+                if str(loc.location_id) == str(invoice.location_id):
+                    location_name = loc.name
+                    break
+        except Exception:
+            pass
+
+    practitioner_name = None
+    if invoice.practitioner_id and hasattr(container.nookal, "get_practitioners"):
+        try:
+            for pr in container.nookal.get_practitioners():
+                if str(pr.practitioner_id) == str(invoice.practitioner_id):
+                    practitioner_name = f"{pr.first_name} {pr.last_name or ''}".strip()
+                    break
+        except Exception:
+            pass
+
+    payments = []
+    try:
+        payments = svc.get_invoice_payments(
+            invoice.invoice_id,
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+        )
+    except Exception:
+        payments = []
+
+    all_entries = invoice.entries if invoice.entries else entries
+    calc_subtotal = sum(((e.price or 0.0) * (e.quantity if e.quantity is not None else 1.0)) for e in all_entries) if all_entries else (invoice.total or 0.0)
+    calc_tax = invoice.tax if invoice.tax is not None else sum((e.tax or 0.0) for e in all_entries)
+    calc_total = invoice.total if (invoice.total is not None and invoice.total > 0) else (calc_subtotal + calc_tax)
+    calc_paid = invoice.paid if invoice.paid is not None else (calc_total if (invoice.status or "").lower() == "paid" else 0.0)
+    calc_balance = invoice.balance if invoice.balance is not None else (0.0 if (invoice.status or "").lower() == "paid" else max(0.0, calc_total - calc_paid))
+
+    return {
+        "invoice": invoice,
+        "entries": all_entries,
+        "patient_name": patient_name,
+        "location_name": location_name,
+        "practitioner_name": practitioner_name,
+        "payments": payments,
+        "calc_subtotal": calc_subtotal,
+        "calc_tax": calc_tax,
+        "calc_total": calc_total,
+        "calc_paid": calc_paid,
+        "calc_balance": calc_balance,
+    }
 
 
 @router.get("/patients/{patient_id}/invoices/{invoice_id}", response_class=HTMLResponse)
@@ -444,6 +582,7 @@ async def invoice_detail_page(
     invoice_id: str,
     user: Annotated[User, Depends(require_permission(Permission.PATIENT_VIEW))],
     session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     svc: Annotated[InvoiceService, Depends(invoice_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> HTMLResponse:
@@ -468,14 +607,20 @@ async def invoice_detail_page(
     except Exception:
         pass
 
+    inv_ctx = _resolve_invoice_context(
+        invoice=invoice,
+        entries=entries,
+        container=container,
+        svc=svc,
+        user=user,
+        correlation_id=correlation_id,
+    )
+    inv_ctx["patient_id"] = patient_id or invoice.patient_id or "0"
+
     return _templates(request).TemplateResponse(
         request,
         name="invoice_detail.html",
-        context=_base_ctx(request, user, session, extra={
-            "invoice": invoice,
-            "entries": entries,
-            "patient_id": patient_id or invoice.patient_id or "0",
-        }),
+        context=_base_ctx(request, user, session, extra=inv_ctx),
     )
 
 
@@ -486,6 +631,7 @@ async def finance_invoice_detail_page(
     invoice_id: str,
     user: Annotated[User, Depends(require_permission(Permission.DOCUMENT_REVIEW))],
     session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
     svc: Annotated[InvoiceService, Depends(invoice_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> HTMLResponse:
@@ -510,14 +656,20 @@ async def finance_invoice_detail_page(
     except Exception:
         pass
 
+    inv_ctx = _resolve_invoice_context(
+        invoice=invoice,
+        entries=entries,
+        container=container,
+        svc=svc,
+        user=user,
+        correlation_id=correlation_id,
+    )
+    inv_ctx["patient_id"] = invoice.patient_id or "0"
+
     return _templates(request).TemplateResponse(
         request,
         name="invoice_detail.html",
-        context=_base_ctx(request, user, session, extra={
-            "invoice": invoice,
-            "entries": entries,
-            "patient_id": invoice.patient_id or "0",
-        }),
+        context=_base_ctx(request, user, session, extra=inv_ctx),
     )
 
 
@@ -597,6 +749,110 @@ async def appointments_page(
             "known_locations": known_locations,
             "known_practitioners": known_practitioners,
         }),
+    )
+
+
+@router.get("/appointments/{appointment_id}", response_class=HTMLResponse)
+async def appointment_detail_page(
+    request: Request,
+    appointment_id: str,
+    user: Annotated[User, Depends(require_permission(Permission.APPOINTMENT_VIEW))],
+    session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
+    appt_svc: Annotated[AppointmentService, Depends(appointment_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
+) -> HTMLResponse:
+    try:
+        appt = appt_svc.get_appointment(
+            appointment_id,
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Appointment not found") from exc
+
+    patient = None
+    if appt.patient_id and hasattr(container.nookal, "get_patient"):
+        try:
+            patient = container.nookal.get_patient(appt.patient_id)
+        except Exception:
+            patient = None
+
+    location_name = None
+    if appt.location_id and hasattr(container.nookal, "get_locations"):
+        try:
+            for loc in container.nookal.get_locations():
+                if str(loc.location_id) == str(appt.location_id):
+                    location_name = loc.name
+                    break
+        except Exception:
+            pass
+
+    practitioner_name = None
+    if appt.practitioner_id and hasattr(container.nookal, "get_practitioners"):
+        try:
+            for pr in container.nookal.get_practitioners():
+                if str(pr.practitioner_id) == str(appt.practitioner_id):
+                    practitioner_name = f"{pr.first_name} {pr.last_name or ''}".strip()
+                    break
+        except Exception:
+            pass
+
+    type_name = appt.appointment_type
+    if not type_name and appt.type_id and hasattr(container.nookal, "get_appointment_types"):
+        try:
+            for at in container.nookal.get_appointment_types():
+                if str(at.type_id) == str(appt.type_id):
+                    type_name = at.name
+                    break
+        except Exception:
+            pass
+
+    related_notes = []
+    if hasattr(container.nookal, "get_treatment_notes") and appt.patient_id:
+        try:
+            all_notes = container.nookal.get_treatment_notes(appt.patient_id)
+            related_notes = [n for n in all_notes if n.appointment_id and str(n.appointment_id) == str(appt.appointment_id)]
+        except Exception:
+            related_notes = []
+
+    related_invoices = []
+    if hasattr(container.nookal, "get_invoices") and appt.patient_id:
+        try:
+            all_invs = container.nookal.get_invoices(patient_id=appt.patient_id)
+            related_invoices = all_invs
+        except Exception:
+            related_invoices = []
+
+    can_change = _can(container, user.role, Permission.APPOINTMENT_CHANGE)
+
+    duration_minutes = None
+    if appt.starts_at and appt.ends_at:
+        try:
+            duration_minutes = max(1, int((appt.ends_at - appt.starts_at).total_seconds() // 60))
+        except Exception:
+            duration_minutes = None
+
+    return _templates(request).TemplateResponse(
+        request,
+        name="appointment_detail.html",
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            extra={
+                "appointment": appt,
+                "patient": patient,
+                "location_name": location_name,
+                "practitioner_name": practitioner_name,
+                "type_name": type_name,
+                "related_notes": related_notes,
+                "related_invoices": related_invoices,
+                "can_change": can_change,
+                "duration_minutes": duration_minutes,
+            },
+        ),
     )
 
 
@@ -812,6 +1068,17 @@ async def cases_page(
         nookal_cases = []
         cases_error = "Unable to load Nookal clinical cases at this time."
 
+    patient_names = {}
+    if hasattr(container.nookal, "get_patient"):
+        for nc in nookal_cases:
+            if nc.patient_id and nc.patient_id not in patient_names:
+                try:
+                    pat = container.nookal.get_patient(nc.patient_id)
+                    if pat:
+                        patient_names[nc.patient_id] = f"{pat.first_name or ''} {pat.last_name or ''}".strip() or nc.patient_id
+                except Exception:
+                    pass
+
     return _templates(request).TemplateResponse(
         request,
         name="cases.html",
@@ -822,6 +1089,7 @@ async def cases_page(
             extra={
                 "cases": flagged_cases,
                 "nookal_cases": nookal_cases,
+                "patient_names": patient_names,
                 "cases_error": cases_error,
                 "can_acknowledge": _can(container, user.role, Permission.CASE_ACKNOWLEDGE),
             },

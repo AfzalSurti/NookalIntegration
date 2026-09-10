@@ -94,7 +94,14 @@
       {% for nc in nookal_cases %}
         <tr>
           <td><code>{{ nc.case_id }}</code></td>
-          <td><a href="/patients/{{ nc.patient_id }}"><strong>{{ nc.patient_id }}</strong></a></td>
+          <td>
+            <a href="/patients/{{ nc.patient_id }}">
+              <strong>{{ patient_names.get(nc.patient_id) or nc.patient_id }}</strong>
+              {% if patient_names.get(nc.patient_id) and patient_names.get(nc.patient_id) != nc.patient_id %}
+                <span style="font-size: 0.8rem; color: var(--text-muted);">(ID: {{ nc.patient_id }})</span>
+              {% endif %}
+            </a>
+          </td>
           <td><strong>{{ nc.case_name or "—" }}</strong></td>
           <td>{{ nc.case_number or "—" }}</td>
           <td>

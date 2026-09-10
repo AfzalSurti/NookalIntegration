@@ -95,15 +95,15 @@
         <th>Practitioner</th>
         <th>Location</th>
         <th>Type</th>
-        {% if can_change %}
         <th style="text-align: right;">Actions</th>
-        {% endif %}
       </tr>
     </thead>
     <tbody>
     {% for a in appointments %}
       <tr>
-        <td><code>{{ a.appointment_id }}</code></td>
+        <td>
+          <a href="/appointments/{{ a.appointment_id }}"><code>{{ a.appointment_id }}</code></a>
+        </td>
         <td>
           <a href="/patients/{{ a.patient_id }}"><strong>{{ a.patient_id }}</strong></a>
         </td>
@@ -124,22 +124,21 @@
         <td>{{ a.practitioner_id or "—" }}</td>
         <td>{{ a.location_id or "—" }}</td>
         <td>{{ a.appointment_type or "—" }}</td>
-        {% if can_change %}
         <td style="text-align: right;">
-          {% if a.status != "cancelled" %}
-          <div class="flex gap-2" style="justify-content: flex-end;">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="openApptAction('reschedule', '{{ a.appointment_id }}', '{{ a.patient_id }}')">Reschedule</button>
-            <button type="button" class="btn btn-outline btn-sm" style="color: var(--error); border-color: var(--error-border);" onclick="openApptAction('cancel', '{{ a.appointment_id }}', '{{ a.patient_id }}')">Cancel</button>
+          <div class="flex gap-2" style="justify-content: flex-end; align-items: center;">
+            <a href="/appointments/{{ a.appointment_id }}" class="btn btn-secondary btn-sm">View</a>
+            {% if can_change and a.status != "cancelled" %}
+              <button type="button" class="btn btn-secondary btn-sm" onclick="openApptAction('reschedule', '{{ a.appointment_id }}', '{{ a.patient_id }}')">Reschedule</button>
+              <button type="button" class="btn btn-outline btn-sm" style="color: var(--error); border-color: var(--error-border);" onclick="openApptAction('cancel', '{{ a.appointment_id }}', '{{ a.patient_id }}')">Cancel</button>
+            {% elif a.status == "cancelled" %}
+              <span style="color: var(--text-muted); font-size: 0.85rem;">Cancelled</span>
+            {% endif %}
           </div>
-          {% else %}
-          <span style="color: var(--text-muted); font-size: 0.85rem;">Cancelled</span>
-          {% endif %}
         </td>
-        {% endif %}
       </tr>
     {% else %}
       <tr>
-        <td colspan="{% if can_change %}8{% else %}7{% endif %}">
+        <td colspan="8">
           <div class="empty-state">
             <div class="empty-state-title">No upcoming appointments</div>
             <div class="empty-state-text">No appointments found matching your criteria.</div>

@@ -7,7 +7,7 @@ from typing import Any, Callable
 from app.approval import ApprovalQueue
 from app.dashboard.schemas import AppointmentActionRequest, AppointmentSummary
 from app.messaging import MessagingService
-from app.nookal_client import NookalClient
+from app.nookal_client import Appointment, NookalClient
 from app.orchestration.appointment_commands import (
     CancelAppointmentWorkflow,
     RescheduleAppointmentWorkflow,
@@ -121,6 +121,28 @@ class AppointmentService:
             )
             for a in operational
         ]
+
+    def get_appointment(
+        self,
+        appointment_id: str,
+        *,
+        actor: str,
+        role: str,
+        correlation_id: str,
+    ) -> Appointment:
+        appt = self._nookal.get_appointment(appointment_id)
+        self._audit(
+            actor=actor,
+            action="dashboard.appointment_view",
+            target_type="appointment",
+            target_id=appointment_id,
+            result="success",
+            metadata={
+                "correlation_id": correlation_id,
+                "role": role,
+            },
+        )
+        return appt
 
     def run_action(
         self,

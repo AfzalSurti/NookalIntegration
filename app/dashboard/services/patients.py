@@ -228,21 +228,54 @@ class PatientService:
             try:
                 invoices = self._nookal.get_invoices(patient_id=patient_id, expanded=1)
                 for idx, inv in enumerate(invoices):
-                    if inv.total is None or inv.total == 0.0 or not inv.date or not inv.status or inv.status == "—":
+                    calc_total = inv.total
+                    entries = inv.entries
+                    needs_lookup = (
+                        calc_total is None
+                        or calc_total == 0.0
+                        or not inv.date
+                        or not inv.status
+                        or inv.status == "—"
+                        or not entries
+                    )
+                    if needs_lookup:
                         try:
                             full_inv = self._nookal.get_invoice(inv.invoice_id)
-                            if full_inv:
-                                invoices[idx] = Invoice(
-                                    invoice_id=inv.invoice_id,
-                                    patient_id=inv.patient_id or full_inv.patient_id,
-                                    date=full_inv.date or inv.date,
-                                    total=full_inv.total if (full_inv.total is not None and full_inv.total > 0) else inv.total,
-                                    status=full_inv.status if (full_inv.status and full_inv.status != "—") else inv.status,
-                                    void=full_inv.void if full_inv.void is not None else inv.void,
-                                    expanded=full_inv.expanded or inv.expanded,
-                                    entries=full_inv.entries or inv.entries,
-                                    raw={**inv.raw, **full_inv.raw},
+                            entries = full_inv.entries or entries
+                            if not entries:
+                                try:
+                                    entries = self._nookal.get_invoice_entries(invoice_id=inv.invoice_id)
+                                except Exception:
+                                    entries = []
+                            calc_total = full_inv.total if (full_inv.total is not None and full_inv.total > 0) else inv.total
+                            if (calc_total is None or calc_total == 0.0) and entries:
+                                entry_sum = sum(
+                                    (e.total if e.total is not None else ((e.price or 0.0) * (e.quantity or 1.0) + (e.tax or 0.0)))
+                                    for e in entries
                                 )
+                                if entry_sum > 0:
+                                    calc_total = float(entry_sum)
+
+                            invoices[idx] = Invoice(
+                                invoice_id=inv.invoice_id,
+                                patient_id=inv.patient_id or full_inv.patient_id,
+                                date=full_inv.date or inv.date,
+                                total=calc_total,
+                                status=full_inv.status if (full_inv.status and full_inv.status != "—") else inv.status,
+                                void=full_inv.void if full_inv.void is not None else inv.void,
+                                expanded=bool(entries) or full_inv.expanded or inv.expanded,
+                                entries=entries,
+                                location_id=full_inv.location_id or inv.location_id,
+                                practitioner_id=full_inv.practitioner_id or inv.practitioner_id,
+                                case_id=full_inv.case_id or inv.case_id,
+                                reference=full_inv.reference or inv.reference,
+                                due_date=full_inv.due_date or inv.due_date,
+                                balance=full_inv.balance if full_inv.balance is not None else inv.balance,
+                                paid=full_inv.paid if full_inv.paid is not None else inv.paid,
+                                tax=full_inv.tax if full_inv.tax is not None else inv.tax,
+                                notes=full_inv.notes or inv.notes,
+                                raw={**inv.raw, **full_inv.raw},
+                            )
                         except Exception:
                             pass
                 invoices_out = [
@@ -262,6 +295,17 @@ class PatientService:
                 logger.warning("Failed to fetch invoices for patient %s: %s", patient_id, type(exc).__name__)
                 invoices_error = "Unable to load invoices from Nookal at this time."
 
+        referrer_name = None
+        if patient.referrer_id and hasattr(self._nookal, "list_referrers"):
+            try:
+                refs = self._nookal.list_referrers()
+                for r in refs:
+                    if str(r.referrer_id) == str(patient.referrer_id):
+                        referrer_name = r.name
+                        break
+            except Exception:
+                referrer_name = None
+
         self._audit(
             actor=actor,
             action="dashboard.patient_view",
@@ -278,11 +322,24 @@ class PatientService:
         return PatientDetail(
             patient_id=patient.patient_id,
             display_name=patient.display_name,
+            first_name=patient.first_name,
+            middle_name=patient.middle_name,
+            last_name=patient.last_name,
+            nickname=patient.nickname,
             phone=patient.phone,
             email=patient.email,
+            date_of_birth=patient.date_of_birth,
+            gender=patient.gender,
             suburb=patient.suburb,
+            address=patient.address,
+            postal_address=patient.postal_address,
+            online_code=patient.online_code,
+            deceased=patient.deceased,
             age=_age_years(patient.date_of_birth, today),
             referrer_id=patient.referrer_id,
+            referrer_name=referrer_name,
+            date_created=patient.date_created,
+            date_modified=patient.date_modified,
             last_appointment_date=patient.last_appointment_date,
             appointments=appt_out,
             documents=docs,
@@ -293,4 +350,5 @@ class PatientService:
             cases_error=cases_error,
             files_error=files_error,
             invoices_error=invoices_error,
+            raw=dict(patient.raw) if patient.raw else {},
         )

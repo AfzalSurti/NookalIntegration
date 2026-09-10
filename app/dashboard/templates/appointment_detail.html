@@ -1,0 +1,425 @@
+{% extends "base.html" %}
+{% block title %}Appointment {{ appointment.appointment_id }} — Back to Ease{% endblock %}
+{% block topbar_title %}Appointment Detail{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
+    <a href="/appointments" class="btn btn-secondary btn-sm">← Back to Appointments</a>
+    {% if appointment.patient_id %}
+      <a href="/patients/{{ appointment.patient_id }}" class="btn btn-secondary btn-sm">👤 View Patient</a>
+    {% endif %}
+    <h1 class="page-title">Appointment #{{ appointment.appointment_id }}</h1>
+    {% if appointment.status == "booked" %}
+      <span class="badge badge-info">Booked</span>
+    {% elif appointment.status == "arrived" or appointment.status == "completed" %}
+      <span class="badge badge-success">{{ appointment.status|capitalize }}</span>
+    {% elif appointment.status == "cancelled" %}
+      <span class="badge badge-error">Cancelled</span>
+    {% elif appointment.status == "dna" %}
+      <span class="badge badge-warning">DNA (Did Not Attend)</span>
+    {% elif appointment.status %}
+      <span class="badge badge-neutral">{{ appointment.status|capitalize }}</span>
+    {% endif %}
+  </div>
+  <div class="flex gap-2" style="margin-top: var(--sp-3); flex-wrap: wrap;">
+    {% if can_change and appointment.status != "cancelled" %}
+      <button type="button" class="btn btn-primary btn-sm" onclick="openApptAction('reschedule', '{{ appointment.appointment_id }}', '{{ patient.phone if patient else '' }}')">📅 Reschedule</button>
+      <button type="button" class="btn btn-outline btn-sm" style="color: var(--error); border-color: var(--error-border);" onclick="openApptAction('cancel', '{{ appointment.appointment_id }}', '{{ patient.phone if patient else '' }}')">❌ Cancel Appointment</button>
+    {% endif %}
+    <button onclick="window.print()" class="btn btn-secondary btn-sm" id="print-btn">🖨️ Print / Save as PDF</button>
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--sp-6); margin-bottom: var(--sp-6);">
+  <!-- Primary Appointment Information Card -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Appointment Details</div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-4);">
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Appointment ID</div>
+        <div style="font-size: 1rem; margin-top: var(--sp-1);"><code>{{ appointment.appointment_id }}</code></div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Status</div>
+        <div style="font-size: 1rem; margin-top: var(--sp-1);">
+          {% if appointment.status == "booked" %}
+            <span class="badge badge-info">Booked</span>
+          {% elif appointment.status == "arrived" or appointment.status == "completed" %}
+            <span class="badge badge-success">{{ appointment.status|capitalize }}</span>
+          {% elif appointment.status == "cancelled" %}
+            <span class="badge badge-error">Cancelled</span>
+          {% elif appointment.status == "dna" %}
+            <span class="badge badge-warning">DNA</span>
+          {% else %}
+            <span class="badge badge-neutral">{{ appointment.status or "—" }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Starts At</div>
+        <div style="font-size: 1rem; font-weight: 600; margin-top: var(--sp-1);">
+          {{ appointment.starts_at }}
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Ends At</div>
+        <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">
+          {{ appointment.ends_at or "—" }}
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Duration</div>
+        <div style="font-size: 1rem; margin-top: var(--sp-1);">
+          {% if duration_minutes %}
+            <strong>{{ duration_minutes }} minutes</strong>
+          {% else %}
+            —
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Type</div>
+        <div style="font-size: 1rem; margin-top: var(--sp-1);">
+          <strong>{{ type_name or appointment.appointment_type or "—" }}</strong>
+          {% if appointment.type_id %}
+            <span style="font-size: 0.8rem; color: var(--text-muted);">(ID: {{ appointment.type_id }})</span>
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Practitioner</div>
+        <div style="font-size: 1rem; margin-top: var(--sp-1);">
+          <strong>{{ practitioner_name or appointment.practitioner_id or "—" }}</strong>
+          {% if appointment.practitioner_id and practitioner_name %}
+            <span style="font-size: 0.8rem; color: var(--text-muted);">(ID: {{ appointment.practitioner_id }})</span>
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Location</div>
+        <div style="font-size: 1rem; margin-top: var(--sp-1);">
+          <strong>{{ location_name or appointment.location_id or "—" }}</strong>
+          {% if appointment.location_id and location_name %}
+            <span style="font-size: 0.8rem; color: var(--text-muted);">(ID: {{ appointment.location_id }})</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Patient Context Card -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Patient Information</div>
+      {% if appointment.patient_id %}
+        <a href="/patients/{{ appointment.patient_id }}" class="btn btn-secondary btn-sm">Full Profile →</a>
+      {% endif %}
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-4);">
+      <div style="grid-column: span 2;">
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Patient Name</div>
+        <div style="font-size: 1.15rem; font-weight: 700; margin-top: var(--sp-1);">
+          <a href="/patients/{{ appointment.patient_id }}">
+            {{ patient.display_name if patient and patient.display_name else ("Patient #" ~ appointment.patient_id) }}
+          </a>
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Patient ID</div>
+        <div style="font-size: 1rem; margin-top: var(--sp-1);"><code>{{ appointment.patient_id }}</code></div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Phone</div>
+        <div style="font-size: 1rem; margin-top: var(--sp-1);">
+          {% if patient and patient.phone %}
+            <a href="tel:{{ patient.phone }}"><strong>{{ patient.phone }}</strong></a>
+          {% else %}
+            —
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Email</div>
+        <div style="font-size: 1rem; margin-top: var(--sp-1);">
+          {% if patient and patient.email %}
+            <a href="mailto:{{ patient.email }}">{{ patient.email }}</a>
+          {% else %}
+            —
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Suburb</div>
+        <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ patient.suburb if patient and patient.suburb else "—" }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Indicators and Operational Flags Card -->
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Status Indicators & Automation History</div>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--sp-4);">
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Arrived</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {% if appointment.arrived %}
+          <span class="badge badge-success">✓ Arrived</span>
+        {% else %}
+          <span class="badge badge-neutral">No</span>
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">DNA (Did Not Attend)</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {% if appointment.dna %}
+          <span class="badge badge-error">⚠ Did Not Attend</span>
+        {% else %}
+          <span class="badge badge-neutral">No</span>
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Cancellation</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {% if appointment.cancelled %}
+          <span class="badge badge-error">Cancelled</span>
+          {% if appointment.cancellation_date %}
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">{{ appointment.cancellation_date }}</div>
+          {% endif %}
+        {% else %}
+          <span class="badge badge-success">Active</span>
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Email Reminder Sent</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {% if appointment.email_reminder_sent %}
+          <span class="badge badge-success">✓ Sent</span>
+        {% else %}
+          <span class="badge badge-neutral">Not Sent</span>
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Invoice Generated</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {% if appointment.invoice_generated %}
+          <span class="badge badge-success">✓ Generated</span>
+        {% else %}
+          <span class="badge badge-neutral">Pending / None</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Booking / Clinical Notes Card -->
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Booking & Operational Notes</div>
+  </div>
+  <div style="padding: var(--sp-4);">
+    {% if appointment.notes %}
+      <div style="background: var(--bg); padding: var(--sp-4); border-radius: var(--radius-md); font-size: 0.95rem; line-height: 1.6; white-space: pre-wrap;">{{ appointment.notes }}</div>
+    {% else %}
+      <span style="color: var(--text-muted); font-size: 0.9rem;">No specific notes or comments recorded for this appointment.</span>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Related Clinical Treatment Notes -->
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Associated Clinical Treatment Notes ({{ related_notes|length }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Note ID</th>
+          <th>Date</th>
+          <th>Practitioner</th>
+          <th>Notes Preview</th>
+          <th style="text-align: right;">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for n in related_notes %}
+        <tr>
+          <td><code>{{ n.note_id }}</code></td>
+          <td>{{ n.date or "—" }}</td>
+          <td>{{ n.practitioner_id or "—" }}</td>
+          <td><span style="font-size: 0.9rem; color: var(--text-muted);">{{ (n.notes or "—")[:100] }}{% if n.notes and n.notes|length > 100 %}…{% endif %}</span></td>
+          <td style="text-align: right;">
+            <a href="/patients/{{ appointment.patient_id }}/treatment-notes/{{ n.note_id }}" class="btn btn-secondary btn-sm">View Note</a>
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="5">
+            <div class="empty-state">
+              <div class="empty-state-title">No linked treatment notes</div>
+              <div class="empty-state-text">No treatment notes were created directly referencing this appointment ID.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Related Patient Invoices -->
+{% if related_invoices %}
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Patient Invoices ({{ related_invoices|length }})</div>
+    <a href="/patients/{{ appointment.patient_id }}" class="btn btn-secondary btn-sm">All Patient Records →</a>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Invoice ID</th>
+          <th>Date</th>
+          <th>Total</th>
+          <th>Status</th>
+          <th style="text-align: right;">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for inv in related_invoices %}
+        <tr>
+          <td><code>{{ inv.invoice_id }}</code></td>
+          <td>{{ inv.date or "—" }}</td>
+          <td><strong>${{ "%.2f"|format(inv.total) if inv.total is not none else "0.00" }}</strong></td>
+          <td>
+            {% if inv.status == "Paid" or inv.status == "paid" %}
+              <span class="badge badge-success">Paid</span>
+            {% elif inv.status == "Unpaid" or inv.status == "unpaid" %}
+              <span class="badge badge-warning">Unpaid</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ inv.status or "—" }}</span>
+            {% endif %}
+          </td>
+          <td style="text-align: right;">
+            <a href="/patients/{{ appointment.patient_id }}/invoices/{{ inv.invoice_id }}" class="btn btn-secondary btn-sm">View Invoice</a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Raw Data Inspector -->
+{% if appointment.raw %}
+<details style="margin-top: var(--sp-6);">
+  <summary class="btn btn-secondary btn-sm" style="cursor: pointer;">Show Raw Nookal Data</summary>
+  <div class="card" style="margin-top: var(--sp-3);">
+    <div style="padding: var(--sp-4);">
+      <pre style="white-space: pre-wrap; font-size: 0.85rem; background: var(--bg); padding: var(--sp-4); border-radius: var(--radius-md); overflow-x: auto;">{{ appointment.raw | tojson(indent=2) }}</pre>
+    </div>
+  </div>
+</details>
+{% endif %}
+
+<!-- Appointment Action Modal (Reschedule / Cancel) -->
+<div class="modal-backdrop" id="appt-action-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="appt-modal-title">Appointment Action</div>
+      <button class="modal-close" onclick="closeModal('appt-action-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="appt-modal-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="appt-modal-form" onsubmit="submitApptAction(event)">
+        <input type="hidden" id="appt-action-type" name="action">
+        <input type="hidden" id="appt-id" name="appointment_id">
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="appt-phone">Patient Contact Phone <span style="color: var(--error);">*</span></label>
+          <input id="appt-phone" name="phone" required placeholder="e.g. 0412345678">
+        </div>
+        <div class="form-group" id="reschedule-date-group" style="margin-bottom: var(--sp-4); display: none;">
+          <label for="appt-starts-at">New Start Date & Time</label>
+          <input id="appt-starts-at" name="starts_at" type="datetime-local">
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="appt-message">Reason / Confirmation Notes</label>
+          <textarea id="appt-message" name="message" rows="3" placeholder="Optional notes for clinic log..."></textarea>
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('appt-action-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="appt-submit-btn">Confirm</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<style>
+  @media print {
+    #print-btn, .sidebar, .topbar, details, .btn { display: none !important; }
+    .main-content { margin: 0 !important; padding: 0 !important; }
+    .card { box-shadow: none !important; border: 1px solid #ddd !important; }
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openApptAction(action, apptId, phone) {
+  document.getElementById('appt-action-type').value = action;
+  document.getElementById('appt-id').value = apptId;
+  document.getElementById('appt-modal-error').style.display = 'none';
+  document.getElementById('appt-phone').value = phone || '';
+  document.getElementById('appt-message').value = '';
+  const isReschedule = (action === 'reschedule');
+  document.getElementById('reschedule-date-group').style.display = isReschedule ? 'block' : 'none';
+  document.getElementById('appt-modal-title').textContent = isReschedule ? 'Reschedule Appointment' : 'Cancel Appointment';
+  document.getElementById('appt-submit-btn').textContent = isReschedule ? 'Reschedule' : 'Cancel Appointment';
+  openModal('appt-action-modal');
+}
+
+function submitApptAction(e) {
+  e.preventDefault();
+  const action = document.getElementById('appt-action-type').value;
+  const phone = document.getElementById('appt-phone').value.trim();
+  const message = document.getElementById('appt-message').value.trim() || null;
+  const startsAt = document.getElementById('appt-starts-at').value ? new Date(document.getElementById('appt-starts-at').value).toISOString() : null;
+  const errorDiv = document.getElementById('appt-modal-error');
+  errorDiv.style.display = 'none';
+
+  const body = {
+    action: action,
+    phone: phone,
+    message: message,
+    starts_at: startsAt
+  };
+
+  const btn = document.getElementById('appt-submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Processing...';
+
+  apiCall('POST', '/api/appointments/actions', body)
+    .then(data => {
+      closeModal('appt-action-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Try Again';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Action failed. Please verify the phone and parameters.';
+    });
+}
+</script>
+{% endblock %}

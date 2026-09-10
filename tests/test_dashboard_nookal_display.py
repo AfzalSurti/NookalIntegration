@@ -7,6 +7,7 @@ Nookal API / Client -> Services (CaseService, PatientFileService, InvoiceService
 """
 from __future__ import annotations
 
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -15,11 +16,17 @@ from fastapi.testclient import TestClient
 
 from app.dashboard.production import build_production_container
 from app.nookal_client import (
+    Appointment,
+    AppointmentType,
     CaseRef,
     HttpNookalClient,
     Invoice,
     InvoiceEntry,
+    Location,
     PatientFile,
+    PatientRef,
+    Practitioner,
+    Referrer,
 )
 from app.shared.config import Settings, get_settings
 from app.shared.exceptions import NookalServerError
@@ -266,20 +273,74 @@ def test_authorization_enforced_on_nookal_views(client: TestClient) -> None:
 def test_treatment_note_detail_view(client: TestClient, env) -> None:
     from app.nookal_client import TreatmentNote
 
+    # Set up practitioner so name can be resolved
+    env.nookal.practitioners["prac_50"] = Practitioner(
+        practitioner_id="prac_50",
+        first_name="Dr. Sarah",
+        last_name="Chen",
+    )
+
     env.nookal.treatment_notes.append(
         TreatmentNote(
             note_id="79",
             patient_id="pat_1001",
+            practitioner_id="prac_50",
             notes="Patient reports improved mobility and reduced pain.",
             date="2026-08-15 10:30:00",
+            case_id="case_c100",
+            appointment_id="appt_500",
         )
     )
 
     resp = env.authed(client, "GET", "/patients/pat_1001/treatment-notes/79", role="practitioner")
     assert resp.status_code == 200
-    assert "ID: 79" in resp.text
-    assert "Patient reports improved mobility and reduced pain." in resp.text
-    assert "Print / Save as PDF" in resp.text
+    html = resp.text
+    assert "ID: 79" in html
+    assert "Patient reports improved mobility and reduced pain." in html
+    assert "Print / Save as PDF" in html
+    # Verify practitioner name is resolved
+    assert "Dr. Sarah Chen" in html
+    assert "prac_50" in html
+    # Verify patient link
+    assert "/patients/pat_1001" in html
+    # Verify appointment link
+    assert "/appointments/appt_500" in html
+    # Verify case ID displayed
+    assert "case_c100" in html
+
+
+def test_treatment_note_detail_with_structured_fields(client: TestClient, env) -> None:
+    from app.nookal_client import TreatmentNote
+
+    env.nookal.treatment_notes.append(
+        TreatmentNote(
+            note_id="80",
+            patient_id="pat_1001",
+            date="2026-09-01 14:00:00",
+            raw={
+                "ID": "80",
+                "patientID": "pat_1001",
+                "date": "2026-09-01 14:00:00",
+                "answers": {
+                    "Subjective": "Patient reports knee stiffness in the morning.",
+                    "Objective": "ROM limited to 90 degrees flexion.",
+                    "Assessment": "Improving post-op recovery.",
+                    "Plan": "Continue exercises, review in 2 weeks.",
+                },
+            },
+        )
+    )
+
+    resp = env.authed(client, "GET", "/patients/pat_1001/treatment-notes/80", role="practitioner")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "Structured Fields" in html
+    assert "Subjective" in html
+    assert "Patient reports knee stiffness" in html
+    assert "Objective" in html
+    assert "ROM limited to 90 degrees" in html
+    assert "Assessment" in html
+    assert "Plan" in html
 
 
 def test_treatment_note_detail_not_found(client: TestClient, env) -> None:
@@ -382,3 +443,231 @@ def test_nookal_invoice_parsing_with_datecreated_and_totaldebits() -> None:
     assert inv.total == 175.50
     assert inv.status == "Paid"
     assert inv.void is False
+
+
+def test_invoice_detail_page_displays_all_fields_and_calculated_totals(client: TestClient, env) -> None:
+    # Seed location and practitioner for name resolution
+    env.nookal.locations["loc_1"] = Location(location_id="loc_1", name="Downtown Physiotherapy Clinic")
+    env.nookal.practitioners["prac_1"] = Practitioner(practitioner_id="prac_1", first_name="Sarah", last_name="Connor")
+
+    # Set up an invoice where total is 0.0 to verify automatic calculation from line items
+    env.nookal.invoices["inv_i500"] = Invoice(
+        invoice_id="inv_i500",
+        patient_id="pat_1001",
+        date="2026-09-01",
+        total=0.0,  # 0 to trigger automatic line item sum
+        status="Unpaid",
+        void=False,
+        location_id="loc_1",
+        practitioner_id="prac_1",
+        case_id="case_c100",
+        reference="INV-2026-0099",
+        due_date="2026-09-30",
+        notes="Please pay within 30 days via direct deposit or card.",
+        entries=[
+            InvoiceEntry(
+                entry_id="e_501",
+                item_id="PHYSIO_INIT",
+                invoice_id="inv_i500",
+                description="Initial Spinal Assessment",
+                price=150.00,
+                quantity=1.0,
+                tax=15.00,
+                total=165.00,
+            ),
+            InvoiceEntry(
+                entry_id="e_502",
+                item_id="THERAPY_EX",
+                invoice_id="inv_i500",
+                description="Therapeutic Exercise Band",
+                price=20.00,
+                quantity=2.0,
+                tax=4.00,
+                total=44.00,
+            ),
+        ],
+        raw={"reference": "INV-2026-0099", "payment_terms": "Net 30"},
+    )
+
+    # 1. Access invoice via patient route
+    resp = env.authed(client, "GET", "/patients/pat_1001/invoices/inv_i500", role="practitioner")
+    assert resp.status_code == 200
+    html = resp.text
+
+    # Verify Invoice Header & Reference
+    assert "Invoice #inv_i500" in html
+    assert "INV-2026-0099" in html
+    assert "Unpaid" in html
+
+    # Verify Patient, Practitioner, Location, Case
+    assert "pat_1001" in html
+    assert "Downtown Physiotherapy Clinic" in html
+    assert "Sarah Connor" in html
+    assert "case_c100" in html
+    assert "2026-09-30" in html
+
+    # Verify Financial Calculations ($165 + $44 = $209.00)
+    assert "$209.00" in html  # Total Invoice Amount
+    assert "$190.00" in html  # Subtotal ($150 + $40)
+    assert "$19.00" in html   # Tax / GST ($15 + $4)
+
+    # Verify Line items breakdown
+    assert "Initial Spinal Assessment" in html
+    assert "PHYSIO_INIT" in html
+    assert "Therapeutic Exercise Band" in html
+    assert "THERAPY_EX" in html
+    assert "e_501" in html
+    assert "e_502" in html
+
+    # Verify Notes and Raw data toggle
+    assert "Please pay within 30 days" in html
+    assert "Show Raw Nookal Data" in html
+
+    # 2. Access invoice via direct /finance/invoices/{id} route
+    resp_fin = env.authed(client, "GET", "/finance/invoices/inv_i500", role="practitioner")
+    assert resp_fin.status_code == 200
+    assert "$209.00" in resp_fin.text
+    assert "Sarah Connor" in resp_fin.text
+
+
+def test_appointment_detail_page_displays_all_nookal_data(client: TestClient, env) -> None:
+    # Seed metadata helpers
+    env.nookal.locations["loc_2"] = Location(location_id="loc_2", name="West End Health Hub")
+    env.nookal.practitioners["prac_2"] = Practitioner(practitioner_id="prac_2", first_name="David", last_name="Miller")
+    env.nookal.appointment_types["type_std"] = AppointmentType(type_id="type_std", name="Standard Follow-up 30m")
+
+    # Set up comprehensive appointment
+    env.nookal.appointments["appt_777"] = Appointment(
+        appointment_id="appt_777",
+        patient_id="pat_1001",
+        starts_at=datetime(2026, 9, 20, 14, 0),
+        ends_at=datetime(2026, 9, 20, 14, 45),
+        status="booked",
+        location_id="loc_2",
+        practitioner_id="prac_2",
+        type_id="type_std",
+        appointment_type="Standard Follow-up 30m",
+        notes="Patient recovering well; reassess shoulder range of motion.",
+        arrived=False,
+        dna=False,
+        cancelled=False,
+        email_reminder_sent=True,
+        invoice_generated=False,
+        raw={"nookal_source": "online_booking", "device": "mobile"},
+    )
+
+    resp = env.authed(client, "GET", "/appointments/appt_777", role="practitioner")
+    assert resp.status_code == 200
+    html = resp.text
+
+    # Verify appointment ID, status, and patient link
+    assert "Appointment #appt_777" in html
+    assert "Booked" in html
+    assert "pat_1001" in html
+    assert "/patients/pat_1001" in html
+
+    # Verify resolved Location, Practitioner, and Type
+    assert "West End Health Hub" in html
+    assert "David Miller" in html
+    assert "Standard Follow-up 30m" in html
+
+    # Verify Duration & Schedule
+    assert "45 minutes" in html
+
+    # Verify Status Indicators & Automation Flags
+    assert "Sent" in html  # Email reminder sent
+    assert "Active" in html
+
+    # Verify Clinical/Booking notes
+    assert "Patient recovering well; reassess shoulder range of motion." in html
+
+    # Verify Action buttons
+    assert "Reschedule" in html
+    assert "Cancel Appointment" in html
+
+    # Verify Raw data viewer
+    assert "Show Raw Nookal Data" in html
+
+    # 404 for nonexistent appointment
+    resp_404 = env.authed(client, "GET", "/appointments/nonexistent_999", role="practitioner")
+    assert resp_404.status_code == 404
+
+
+def test_patient_detail_page_displays_all_nookal_demographics_and_invoices(client: TestClient, env) -> None:
+    # Seed referrer for name lookup
+    env.nookal.referrers["ref_dr_smith"] = Referrer(
+        referrer_id="ref_dr_smith",
+        name="Dr. Gregory Smith",
+        provider_number="PR-12345",
+    )
+
+    # Seed patient with complete Nookal demographics
+    env.nookal.patients["pat_2020"] = PatientRef(
+        patient_id="pat_2020",
+        first_name="Alexander",
+        middle_name="Graham",
+        last_name="Bell",
+        nickname="Alex",
+        phone="0498765432",
+        email="alex.bell@example.com",
+        display_name="Alexander Bell",
+        date_of_birth=date(1985, 3, 10),
+        gender="Male",
+        suburb="Paddington",
+        address={"street": "100 Queen Street", "city": "Paddington", "state": "QLD", "postcode": "4064"},
+        postal_address="PO Box 777, Brisbane QLD",
+        online_code="ALEX2026",
+        deceased=False,
+        referrer_id="ref_dr_smith",
+        date_created="2026-01-15 08:30:00",
+        date_modified="2026-09-01 11:20:00",
+        last_appointment_date=date(2026, 9, 5),
+        raw={"custom_flag": "VIP_Patient"},
+    )
+
+    # Seed an appointment for this patient to test linking to detail page
+    env.nookal.appointments["appt_888"] = Appointment(
+        appointment_id="appt_888",
+        patient_id="pat_2020",
+        starts_at=datetime(2026, 9, 25, 10, 0),
+        ends_at=datetime(2026, 9, 25, 10, 30),
+        status="booked",
+    )
+
+    resp = env.authed(client, "GET", "/patients/pat_2020", role="practitioner")
+    assert resp.status_code == 200
+    html = resp.text
+
+    # Verify Name breakdown & Nickname
+    assert "Alexander Bell" in html
+    assert 'Nickname: "Alex"' in html
+    assert "Alexander Graham Bell" in html
+
+    # Verify DOB, Gender, Phone, Email
+    assert "1985-03-10" in html
+    assert "Male" in html
+    assert "0498765432" in html
+    assert "alex.bell@example.com" in html
+
+    # Verify Addresses & Codes
+    assert "Paddington" in html
+    assert "100 Queen Street" in html
+    assert "PO Box 777" in html
+    assert "ALEX2026" in html
+    assert "Active Patient" in html
+
+    # Verify Referrer Name & ID
+    assert "Dr. Gregory Smith" in html
+    assert "ref_dr_smith" in html
+
+    # Verify Timestamps
+    assert "2026-01-15 08:30:00" in html
+    assert "2026-09-01 11:20:00" in html
+
+    # Verify Appointment links directly to appointment detail page
+    assert "/appointments/appt_888" in html
+    assert "appt_888" in html
+
+    # Verify Raw Nookal Patient Data inspector is present
+    assert "Show Raw Nookal Patient Data" in html
+

@@ -388,6 +388,15 @@ class Invoice:
     void: bool = False
     expanded: bool = False
     entries: list[InvoiceEntry] = field(default_factory=list)
+    location_id: str | None = None
+    practitioner_id: str | None = None
+    case_id: str | None = None
+    reference: str | None = None
+    due_date: str | None = None
+    balance: float | None = None
+    paid: float | None = None
+    tax: float | None = None
+    notes: str | None = None
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
 
@@ -3196,6 +3205,71 @@ class HttpNookalClient(NookalClient):
             else:
                 raw_status = "Valid"
 
+        loc_id = (
+            data.get("locationID")
+            or data.get("location_id")
+            or data.get("LocationID")
+            or data.get("location")
+            or data.get("locationId")
+        )
+        prac_id = (
+            data.get("practitionerID")
+            or data.get("practitioner_id")
+            or data.get("PractitionerID")
+            or data.get("practitioner")
+            or data.get("practitionerId")
+        )
+        case_id = (
+            data.get("caseID")
+            or data.get("case_id")
+            or data.get("CaseID")
+            or data.get("case")
+            or data.get("caseId")
+        )
+        ref_no = (
+            data.get("reference")
+            or data.get("referenceNumber")
+            or data.get("Reference")
+            or data.get("invoiceNumber")
+            or data.get("invoice_number")
+            or data.get("InvoiceNumber")
+        )
+        raw_due_date = (
+            data.get("dueDate")
+            or data.get("due_date")
+            or data.get("dateDue")
+            or data.get("DateDue")
+            or data.get("DueDate")
+        )
+        parsed_due_date = None
+        if raw_due_date:
+            d_str = str(raw_due_date).strip()
+            if len(d_str) >= 10 and d_str[4] == "-" and d_str[7] == "-":
+                parsed_due_date = d_str[:10]
+            else:
+                parsed_due_date = d_str
+
+        raw_tax = _to_float(
+            data.get("tax")
+            or data.get("totalTax")
+            or data.get("Tax")
+            or data.get("total_tax")
+            or data.get("gst")
+            or data.get("totalGST")
+        )
+        if raw_tax is None and entries:
+            tax_sum = sum(e.tax for e in entries if e.tax is not None)
+            if tax_sum > 0:
+                raw_tax = tax_sum
+
+        notes_val = (
+            data.get("notes")
+            or data.get("comment")
+            or data.get("comments")
+            or data.get("description")
+            or data.get("Notes")
+        )
+
         return Invoice(
             invoice_id=str(iid or ""),
             patient_id=str(pid or ""),
@@ -3205,6 +3279,15 @@ class HttpNookalClient(NookalClient):
             void=is_void,
             expanded=bool(entries),
             entries=entries,
+            location_id=str(loc_id) if loc_id else None,
+            practitioner_id=str(prac_id) if prac_id else None,
+            case_id=str(case_id) if case_id else None,
+            reference=str(ref_no) if ref_no else None,
+            due_date=parsed_due_date,
+            balance=bal_val,
+            paid=pay_val,
+            tax=raw_tax,
+            notes=str(notes_val) if notes_val else None,
             raw=dict(data),
         )
 
@@ -3237,6 +3320,15 @@ class HttpNookalClient(NookalClient):
             except (ValueError, TypeError):
                 return None
 
+        c_price = _clean_num(price)
+        c_qty = _clean_num(qty)
+        c_tax = _clean_num(tax)
+        c_total = _clean_num(total_val)
+        if c_total is None and c_price is not None:
+            c_total = c_price * (c_qty if c_qty is not None else 1.0)
+            if c_tax is not None:
+                c_total += c_tax
+
         return InvoiceEntry(
             entry_id=str(eid or ""),
             invoice_id=str(
@@ -3250,10 +3342,10 @@ class HttpNookalClient(NookalClient):
             item_id=str(data.get("itemID") or data.get("item_id") or data.get("ItemID") or "")
             or None,
             description=data.get("description") or data.get("item_name") or data.get("name"),
-            price=_clean_num(price),
-            quantity=_clean_num(qty),
-            tax=_clean_num(tax),
-            total=_clean_num(total_val),
+            price=c_price,
+            quantity=c_qty,
+            tax=c_tax,
+            total=c_total,
             raw=dict(data),
         )
 

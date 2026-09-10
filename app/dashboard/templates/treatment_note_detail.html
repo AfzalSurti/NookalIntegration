@@ -23,9 +23,16 @@
       <div style="font-size: 1rem; margin-top: var(--sp-1);"><code>{{ note.note_id }}</code></div>
     </div>
     <div>
-      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Patient ID</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Patient</div>
       <div style="font-size: 1rem; margin-top: var(--sp-1);">
-        <a href="/patients/{{ note.patient_id }}">{{ note.patient_id }}</a>
+        <a href="/patients/{{ note.patient_id }}">
+          {% if patient_name %}
+            <strong>{{ patient_name }}</strong>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">(ID: {{ note.patient_id }})</span>
+          {% else %}
+            {{ note.patient_id }}
+          {% endif %}
+        </a>
       </div>
     </div>
     <div>
@@ -34,61 +41,112 @@
     </div>
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Practitioner</div>
-      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ note.practitioner_id or "—" }}</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {% if practitioner_name %}
+          <strong>{{ practitioner_name }}</strong>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">(ID: {{ note.practitioner_id }})</span>
+        {% else %}
+          {{ note.practitioner_id or "—" }}
+        {% endif %}
+      </div>
     </div>
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Case ID</div>
       <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ note.case_id or "—" }}</div>
     </div>
     <div>
-      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Appointment ID</div>
-      <div style="font-size: 1rem; margin-top: var(--sp-1);"><code>{{ note.appointment_id or "—" }}</code></div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Appointment</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {% if note.appointment_id %}
+          <a href="/appointments/{{ note.appointment_id }}"><code>{{ note.appointment_id }}</code></a>
+        {% else %}
+          —
+        {% endif %}
+      </div>
     </div>
   </div>
 </div>
 
-<div class="card">
+{# ── Notes Content ── #}
+<div class="card" style="margin-bottom: var(--sp-6);">
   <div class="card-header">
     <div class="card-title">Notes Content</div>
   </div>
   <div style="padding: 0;">
     {% if note.notes %}
+    {# Plain text notes — display with preserved whitespace #}
     <div style="padding: var(--sp-4); line-height: 1.7; white-space: pre-wrap; font-size: 0.95rem;">{{ note.notes }}</div>
-    {% elif note.raw and note.raw.get('html') %}
-    <div style="padding: var(--sp-4); line-height: 1.7; font-size: 0.95rem;">{{ note.raw.get('html') | safe }}</div>
-    {% elif note.raw and note.raw.get('answers') %}
-    <div style="padding: var(--sp-4);">
-      <table>
-        <thead>
-          <tr>
-            <th>Question / Field</th>
-            <th>Answer / Value</th>
-          </tr>
-        </thead>
-        <tbody>
-        {% for key, val in note.raw.get('answers', {}).items() %}
-          <tr>
-            <td><strong>{{ key }}</strong></td>
-            <td>{{ val }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    {% elif html_content %}
+    {# HTML-rendered note content from Nookal #}
+    <div style="padding: var(--sp-4); line-height: 1.7; font-size: 0.95rem;">{{ html_content | safe }}</div>
     {% else %}
     <div style="padding: var(--sp-4);">
       <div class="empty-state">
-        <div class="empty-state-title">No content available</div>
-        <div class="empty-state-text">This treatment note does not contain visible text content.</div>
+        <div class="empty-state-title">No text content</div>
+        <div class="empty-state-text">This treatment note does not contain plain-text or HTML content. Check structured fields below.</div>
       </div>
     </div>
     {% endif %}
   </div>
 </div>
 
+{# ── Structured Fields / Answers (from Nookal custom templates) ── #}
+{% if note_sections %}
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Structured Fields</div>
+    <span class="badge badge-info">{{ note_sections|length }} fields</span>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 35%;">Field / Question</th>
+          <th>Answer / Value</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for section in note_sections %}
+        <tr>
+          <td><strong>{{ section.label }}</strong></td>
+          <td style="white-space: pre-wrap;">{{ section.value }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% elif note.raw and note.raw.get('answers') and note.raw.get('answers') is mapping %}
+{# Fallback for answers dict not already parsed into note_sections #}
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Structured Fields</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 35%;">Question / Field</th>
+          <th>Answer / Value</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for key, val in note.raw.get('answers', {}).items() %}
+        <tr>
+          <td><strong>{{ key }}</strong></td>
+          <td style="white-space: pre-wrap;">{{ val }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Raw Data Inspector ── #}
 {% if note.raw %}
 <details style="margin-top: var(--sp-6);">
-  <summary class="btn btn-secondary btn-sm" style="cursor: pointer;">Show Raw Data</summary>
+  <summary class="btn btn-secondary btn-sm" style="cursor: pointer;">Show Raw Nookal Data</summary>
   <div class="card" style="margin-top: var(--sp-3);">
     <div style="padding: var(--sp-4);">
       <pre style="white-space: pre-wrap; font-size: 0.85rem; background: var(--bg); padding: var(--sp-4); border-radius: var(--radius-md); overflow-x: auto;">{{ note.raw | tojson(indent=2) }}</pre>

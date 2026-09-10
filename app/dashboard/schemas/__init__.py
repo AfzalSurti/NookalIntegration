@@ -102,11 +102,24 @@ class PatientInvoiceOut(BaseModel):
 class PatientDetail(BaseModel):
     patient_id: str
     display_name: str | None = None
+    first_name: str | None = None
+    middle_name: str | None = None
+    last_name: str | None = None
+    nickname: str | None = None
     phone: str | None = None
     email: str | None = None
+    date_of_birth: date | None = None
+    gender: str | None = None
     suburb: str | None = None
+    address: Any = None
+    postal_address: Any = None
+    online_code: str | None = None
+    deceased: bool = False
     age: int | None = None
     referrer_id: str | None = None
+    referrer_name: str | None = None
+    date_created: str | None = None
+    date_modified: str | None = None
     last_appointment_date: date | None = None
     appointments: list[AppointmentSummary] = Field(default_factory=list)
     documents: list[DocumentMetaOut] = Field(default_factory=list)
@@ -117,6 +130,7 @@ class PatientDetail(BaseModel):
     cases_error: str | None = None
     files_error: str | None = None
     invoices_error: str | None = None
+    raw: dict[str, Any] = Field(default_factory=dict)
 
 
 
