@@ -19,6 +19,7 @@ from app.dashboard.services import (
     PatientService,
     ReferrerConflictService,
     SystemService,
+    TreatmentNoteService,
     ReviewService,
 )
 from app.orchestration.correlation import new_correlation_id
@@ -206,6 +207,14 @@ def case_service(container: Annotated[DashboardContainer, Depends(get_container)
 
 def patient_file_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> PatientFileService:
     return PatientFileService(
+        nookal=container.nookal,
+        audit=container.audit,
+        clock=container.clock,
+    )
+
+
+def treatment_note_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> TreatmentNoteService:
+    return TreatmentNoteService(
         nookal=container.nookal,
         audit=container.audit,
         clock=container.clock,

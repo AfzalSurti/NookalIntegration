@@ -58,6 +58,15 @@ def test_search_patients_by_suburb() -> None:
     assert [p.patient_id for p in hits] == ["p1"]
 
 
+def test_search_patients_by_multiple_suburbs() -> None:
+    client = _client()
+    client.seed_patient(PatientRef("p1", suburb="Richmond"))
+    client.seed_patient(PatientRef("p2", suburb="Carlton"))
+    client.seed_patient(PatientRef("p3", suburb="Fitzroy"))
+    hits = client.search_patients(suburb=["richmond", "carlton"])
+    assert {p.patient_id for p in hits} == {"p1", "p2"}
+
+
 def test_search_patients_by_age_range() -> None:
     client = _client()
     # as_of = 2026-09-07 → ages 30 and 45

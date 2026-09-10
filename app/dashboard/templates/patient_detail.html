@@ -216,6 +216,7 @@
           <th>Practitioner</th>
           <th>Appointment</th>
           <th>Notes Preview</th>
+          <th style="text-align: right;">Action</th>
         </tr>
       </thead>
       <tbody>
@@ -225,11 +226,14 @@
           <td>{{ n.date or "—" }}</td>
           <td>{{ n.practitioner_id or "—" }}</td>
           <td><code>{{ n.appointment_id or "—" }}</code></td>
-          <td><span style="font-size: 0.9rem; color: var(--text-muted);">{{ n.notes or "—" }}</span></td>
+          <td><span style="font-size: 0.9rem; color: var(--text-muted);">{{ (n.notes or "—")[:80] }}{% if n.notes and n.notes|length > 80 %}…{% endif %}</span></td>
+          <td style="text-align: right;">
+            <a href="/patients/{{ patient.patient_id }}/treatment-notes/{{ n.note_id }}" class="btn btn-secondary btn-sm">View</a>
+          </td>
         </tr>
       {% else %}
         <tr>
-          <td colspan="5">
+          <td colspan="6">
             <div class="empty-state">
               <div class="empty-state-title">No treatment notes found</div>
               <div class="empty-state-text">No treatment notes on file for this patient.</div>
@@ -309,6 +313,7 @@
           <th>Total</th>
           <th>Status</th>
           <th>Void</th>
+          <th style="text-align: right;">Action</th>
         </tr>
       </thead>
       <tbody>
@@ -333,10 +338,13 @@
               <span class="badge badge-success">Valid</span>
             {% endif %}
           </td>
+          <td style="text-align: right;">
+            <a href="/patients/{{ patient.patient_id }}/invoices/{{ inv.invoice_id }}" class="btn btn-secondary btn-sm">View</a>
+          </td>
         </tr>
       {% else %}
         <tr>
-          <td colspan="5">
+          <td colspan="6">
             <div class="empty-state">
               <div class="empty-state-title">No invoices found</div>
               <div class="empty-state-text">No Nookal invoices recorded for this patient.</div>

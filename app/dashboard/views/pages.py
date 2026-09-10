@@ -28,6 +28,7 @@ from app.dashboard.dependencies import (
     require_permission,
     require_user,
     system_service,
+    treatment_note_service,
     review_service,
 )
 from app.dashboard.services import (
@@ -41,6 +42,7 @@ from app.dashboard.services import (
     PatientService,
     ReferrerConflictService,
     SystemService,
+    TreatmentNoteService,
     ReviewService,
 )
 
@@ -227,7 +229,10 @@ async def patients_page(
 ) -> HTMLResponse:
     clean_q = q.strip() if q and q.strip() else None
     clean_deceased = int(deceased) if deceased in ("0", "1") else None
-    clean_suburb = suburb.strip() if suburb and suburb.strip() else None
+    suburbs_param = [s.strip() for s in request.query_params.getlist("suburb") if s and s.strip()]
+    if not suburbs_param and suburb and suburb.strip():
+        suburbs_param = [suburb.strip()]
+    clean_suburbs = suburbs_param if suburbs_param else None
     clean_age_min = _parse_filter_int(age_min)
     clean_age_max = _parse_filter_int(age_max)
     clean_appt_from = _parse_filter_date(appointment_from)
@@ -240,7 +245,7 @@ async def patients_page(
         correlation_id=correlation_id,
         query=clean_q,
         deceased=clean_deceased,
-        suburb=clean_suburb,
+        suburb=clean_suburbs,
         age_min=clean_age_min,
         age_max=clean_age_max,
         appointment_from=clean_appt_from,
@@ -261,17 +266,26 @@ async def patients_page(
         except (NotImplementedError, AttributeError):
             referrers_supported = False
 
+    known_suburbs: list[str] = []
+    try:
+        all_patients = container.nookal.get_patients(page=1, page_length=500)
+        raw_suburbs = {p.suburb for p in all_patients if p.suburb and p.suburb.strip()}
+        known_suburbs = sorted(raw_suburbs, key=str.lower)
+    except Exception:
+        known_suburbs = []
+
     filters = {
         "q": clean_q or "",
         "deceased": str(clean_deceased) if clean_deceased is not None else "",
-        "suburb": clean_suburb or "",
+        "suburb": suburbs_param[0] if len(suburbs_param) == 1 else "",
+        "suburbs": suburbs_param,
         "age_min": str(clean_age_min) if clean_age_min is not None else "",
         "age_max": str(clean_age_max) if clean_age_max is not None else "",
         "appointment_from": clean_appt_from.isoformat() if clean_appt_from else "",
         "appointment_to": clean_appt_to.isoformat() if clean_appt_to else "",
         "referrer_id": clean_referrer_id or "",
     }
-    has_active_filters = any(bool(v) for v in filters.values())
+    has_active_filters = any(bool(v) for k, v in filters.items() if k != "suburbs") or bool(suburbs_param)
 
     return _templates(request).TemplateResponse(
         request,
@@ -286,6 +300,8 @@ async def patients_page(
                 "has_active_filters": has_active_filters,
                 "known_referrers": known_referrers,
                 "referrers_supported": referrers_supported,
+                "known_suburbs": known_suburbs,
+                "selected_suburbs": suburbs_param,
             },
         ),
     )
@@ -334,6 +350,77 @@ async def patient_file_url(
         raise HTTPException(status_code=400, detail="File URL could not be retrieved") from exc
     except Exception as exc:
         raise HTTPException(status_code=404, detail="File URL could not be retrieved") from exc
+
+
+@router.get("/patients/{patient_id}/treatment-notes/{note_id}", response_class=HTMLResponse)
+async def treatment_note_detail_page(
+    request: Request,
+    patient_id: str,
+    note_id: str,
+    user: Annotated[User, Depends(require_permission(Permission.PATIENT_VIEW))],
+    session: Annotated[Session | None, Depends(get_session)],
+    svc: Annotated[TreatmentNoteService, Depends(treatment_note_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
+) -> HTMLResponse:
+    note = svc.get_note(
+        patient_id,
+        note_id,
+        actor=user.user_id,
+        role=user.role,
+        correlation_id=correlation_id,
+    )
+    if note is None:
+        raise HTTPException(status_code=404, detail="Treatment note not found")
+    return _templates(request).TemplateResponse(
+        request,
+        name="treatment_note_detail.html",
+        context=_base_ctx(request, user, session, extra={
+            "note": note,
+            "patient_id": patient_id,
+        }),
+    )
+
+
+@router.get("/patients/{patient_id}/invoices/{invoice_id}", response_class=HTMLResponse)
+async def invoice_detail_page(
+    request: Request,
+    patient_id: str,
+    invoice_id: str,
+    user: Annotated[User, Depends(require_permission(Permission.PATIENT_VIEW))],
+    session: Annotated[Session | None, Depends(get_session)],
+    svc: Annotated[InvoiceService, Depends(invoice_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
+) -> HTMLResponse:
+    try:
+        invoice = svc.get_invoice(
+            invoice_id,
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Invoice not found") from exc
+
+    entries = []
+    try:
+        entries = svc.get_invoice_entries(
+            invoice_id,
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+        )
+    except Exception:
+        pass
+
+    return _templates(request).TemplateResponse(
+        request,
+        name="invoice_detail.html",
+        context=_base_ctx(request, user, session, extra={
+            "invoice": invoice,
+            "entries": entries,
+            "patient_id": patient_id,
+        }),
+    )
 
 
 @router.get("/appointments", response_class=HTMLResponse)

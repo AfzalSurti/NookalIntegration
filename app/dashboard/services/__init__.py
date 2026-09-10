@@ -8,6 +8,7 @@ from app.dashboard.services.patients import PatientService
 from app.dashboard.services.patient_files import PatientFileService
 from app.dashboard.services.referrers import ReferrerConflictService
 from app.dashboard.services.system import SystemService
+from app.dashboard.services.treatment_notes import TreatmentNoteService
 from app.dashboard.services.reviews import ReviewService
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "PatientFileService",
     "ReferrerConflictService",
     "SystemService",
+    "TreatmentNoteService",
     "ReviewService",
     "safe_draft_from_task",
     "task_to_out",

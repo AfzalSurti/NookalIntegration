@@ -35,9 +35,31 @@
         </select>
       </div>
 
-      <div class="form-group">
-        <label for="suburb">Suburb</label>
+      <div class="form-group" style="grid-column: 1 / -1; margin-bottom: var(--sp-2);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label style="margin-bottom: 0; font-weight: 600; font-size: 0.82rem; color: var(--text-secondary);">
+            Suburbs {% if known_suburbs %}<span style="color: var(--text-muted); font-weight: normal;">({{ known_suburbs|length }} available)</span>{% endif %}
+          </label>
+          {% if known_suburbs %}
+          <div style="display: flex; gap: var(--sp-2);">
+            <button type="button" class="btn btn-secondary btn-sm" style="height: 24px; padding: 2px 8px; font-size: 0.72rem;" onclick="toggleAllSuburbs(true)">Select All</button>
+            <button type="button" class="btn btn-secondary btn-sm" style="height: 24px; padding: 2px 8px; font-size: 0.72rem;" onclick="toggleAllSuburbs(false)">Clear All</button>
+          </div>
+          {% endif %}
+        </div>
+
+        {% if known_suburbs %}
+        <div class="suburb-checkbox-grid" style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 140px; overflow-y: auto; padding: var(--sp-3); border: 1.5px solid var(--border-strong); border-radius: var(--radius-sm); background: #fafbfc;">
+          {% for s in known_suburbs %}
+          <label class="suburb-checkbox-item" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); cursor: pointer; font-size: 0.82rem; font-weight: 500; color: var(--text-primary); transition: all 0.15s ease;">
+            <input type="checkbox" name="suburb" value="{{ s }}" class="suburb-checkbox" {% if s in selected_suburbs %}checked{% endif %} style="width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--brand);">
+            <span>{{ s }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        {% else %}
         <input id="suburb" name="suburb" value="{{ filters.suburb }}" placeholder="e.g. Richmond">
+        {% endif %}
       </div>
 
       <div class="form-group">
@@ -130,4 +152,12 @@
     </tbody>
   </table>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleAllSuburbs(state) {
+  document.querySelectorAll('.suburb-checkbox').forEach(cb => cb.checked = state);
+}
+</script>
 {% endblock %}

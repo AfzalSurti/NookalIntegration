@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Treatment Note {{ note.note_id }} — Back to Ease{% endblock %}
+{% block topbar_title %}Treatment Note{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center;">
+    <a href="/patients/{{ patient_id }}" class="btn btn-secondary btn-sm">← Back to Patient</a>
+    <h1 class="page-title">Treatment Note</h1>
+    <span class="badge badge-neutral">ID: {{ note.note_id }}</span>
+  </div>
+  <div style="margin-top: var(--sp-3);">
+    <button onclick="window.print()" class="btn btn-secondary btn-sm" id="print-btn">🖨️ Print / Save as PDF</button>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Note Details</div>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--sp-4);">
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Note ID</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);"><code>{{ note.note_id }}</code></div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Patient ID</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        <a href="/patients/{{ note.patient_id }}">{{ note.patient_id }}</a>
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Date</div>
+      <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ note.date or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Practitioner</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ note.practitioner_id or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Case ID</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">{{ note.case_id or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Appointment ID</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);"><code>{{ note.appointment_id or "—" }}</code></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-title">Notes Content</div>
+  </div>
+  <div style="padding: 0;">
+    {% if note.notes %}
+    <div style="padding: var(--sp-4); line-height: 1.7; white-space: pre-wrap; font-size: 0.95rem;">{{ note.notes }}</div>
+    {% elif note.raw and note.raw.get('html') %}
+    <div style="padding: var(--sp-4); line-height: 1.7; font-size: 0.95rem;">{{ note.raw.get('html') | safe }}</div>
+    {% elif note.raw and note.raw.get('answers') %}
+    <div style="padding: var(--sp-4);">
+      <table>
+        <thead>
+          <tr>
+            <th>Question / Field</th>
+            <th>Answer / Value</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for key, val in note.raw.get('answers', {}).items() %}
+          <tr>
+            <td><strong>{{ key }}</strong></td>
+            <td>{{ val }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div style="padding: var(--sp-4);">
+      <div class="empty-state">
+        <div class="empty-state-title">No content available</div>
+        <div class="empty-state-text">This treatment note does not contain visible text content.</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if note.raw %}
+<details style="margin-top: var(--sp-6);">
+  <summary class="btn btn-secondary btn-sm" style="cursor: pointer;">Show Raw Data</summary>
+  <div class="card" style="margin-top: var(--sp-3);">
+    <div style="padding: var(--sp-4);">
+      <pre style="white-space: pre-wrap; font-size: 0.85rem; background: var(--bg); padding: var(--sp-4); border-radius: var(--radius-md); overflow-x: auto;">{{ note.raw | tojson(indent=2) }}</pre>
+    </div>
+  </div>
+</details>
+{% endif %}
+
+<style>
+  @media print {
+    #print-btn, .sidebar, .topbar, details { display: none !important; }
+    .main-content { margin: 0 !important; padding: 0 !important; }
+    .card { box-shadow: none !important; border: 1px solid #ddd !important; }
+  }
+</style>
+{% endblock %}

@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Invoice {{ invoice.invoice_id }} — Back to Ease{% endblock %}
+{% block topbar_title %}Invoice Detail{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center;">
+    <a href="/patients/{{ patient_id }}" class="btn btn-secondary btn-sm">← Back to Patient</a>
+    <h1 class="page-title">Invoice #{{ invoice.invoice_id }}</h1>
+    {% if invoice.void %}
+      <span class="badge badge-error">Voided</span>
+    {% elif invoice.status == "Paid" or invoice.status == "paid" %}
+      <span class="badge badge-success">Paid</span>
+    {% elif invoice.status == "Unpaid" or invoice.status == "unpaid" %}
+      <span class="badge badge-warning">Unpaid</span>
+    {% else %}
+      <span class="badge badge-neutral">{{ invoice.status or "—" }}</span>
+    {% endif %}
+  </div>
+  <div style="margin-top: var(--sp-3);">
+    <button onclick="window.print()" class="btn btn-secondary btn-sm" id="print-btn">🖨️ Print / Save as PDF</button>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Invoice Information</div>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--sp-4);">
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Invoice ID</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);"><code>{{ invoice.invoice_id }}</code></div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Patient ID</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        <a href="/patients/{{ invoice.patient_id }}">{{ invoice.patient_id }}</a>
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Date</div>
+      <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ invoice.date or "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Total</div>
+      <div style="font-size: 1.1rem; font-weight: 700; margin-top: var(--sp-1); color: var(--brand);">
+        ${{ "%.2f"|format(invoice.total) if invoice.total is not none else "0.00" }}
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Status</div>
+      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+        {% if invoice.void %}
+          <span class="badge badge-error">Voided</span>
+        {% elif invoice.status == "Paid" or invoice.status == "paid" %}
+          <span class="badge badge-success">Paid</span>
+        {% elif invoice.status == "Unpaid" or invoice.status == "unpaid" %}
+          <span class="badge badge-warning">Unpaid</span>
+        {% else %}
+          <span class="badge badge-neutral">{{ invoice.status or "—" }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Line Items ({{ entries|length }})</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Entry ID</th>
+          <th>Description</th>
+          <th style="text-align: right;">Qty</th>
+          <th style="text-align: right;">Price</th>
+          <th style="text-align: right;">Tax</th>
+          <th style="text-align: right;">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for entry in entries %}
+        <tr>
+          <td><code>{{ entry.entry_id }}</code></td>
+          <td><strong>{{ entry.description or "—" }}</strong></td>
+          <td style="text-align: right;">{{ entry.quantity if entry.quantity is not none else "1" }}</td>
+          <td style="text-align: right;">${{ "%.2f"|format(entry.price) if entry.price is not none else "—" }}</td>
+          <td style="text-align: right;">${{ "%.2f"|format(entry.tax) if entry.tax is not none else "0.00" }}</td>
+          <td style="text-align: right;">
+            <strong>
+              {% if entry.price is not none and entry.quantity is not none %}
+                ${{ "%.2f"|format(entry.price * entry.quantity) }}
+              {% elif entry.price is not none %}
+                ${{ "%.2f"|format(entry.price) }}
+              {% else %}
+                —
+              {% endif %}
+            </strong>
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="6">
+            <div class="empty-state">
+              <div class="empty-state-title">No line items</div>
+              <div class="empty-state-text">No detailed entries were returned for this invoice.</div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      {% if entries %}
+      <tfoot>
+        <tr style="font-weight: 700; font-size: 1.05rem;">
+          <td colspan="5" style="text-align: right; padding-right: var(--sp-4);">Invoice Total:</td>
+          <td style="text-align: right; color: var(--brand);">
+            ${{ "%.2f"|format(invoice.total) if invoice.total is not none else "0.00" }}
+          </td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+{% if invoice.expanded and invoice.entries %}
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-header">
+    <div class="card-title">Embedded Entries (from expanded invoice)</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Entry ID</th>
+          <th>Description</th>
+          <th style="text-align: right;">Price</th>
+          <th style="text-align: right;">Tax</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for entry in invoice.entries %}
+        <tr>
+          <td><code>{{ entry.entry_id }}</code></td>
+          <td>{{ entry.description or "—" }}</td>
+          <td style="text-align: right;">${{ "%.2f"|format(entry.price) if entry.price is not none else "—" }}</td>
+          <td style="text-align: right;">${{ "%.2f"|format(entry.tax) if entry.tax is not none else "0.00" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if invoice.raw %}
+<details style="margin-top: var(--sp-6);">
+  <summary class="btn btn-secondary btn-sm" style="cursor: pointer;">Show Raw Data</summary>
+  <div class="card" style="margin-top: var(--sp-3);">
+    <div style="padding: var(--sp-4);">
+      <pre style="white-space: pre-wrap; font-size: 0.85rem; background: var(--bg); padding: var(--sp-4); border-radius: var(--radius-md); overflow-x: auto;">{{ invoice.raw | tojson(indent=2) }}</pre>
+    </div>
+  </div>
+</details>
+{% endif %}
+
+<style>
+  @media print {
+    #print-btn, .sidebar, .topbar, details { display: none !important; }
+    .main-content { margin: 0 !important; padding: 0 !important; }
+    .card { box-shadow: none !important; border: 1px solid #ddd !important; }
+  }
+</style>
+{% endblock %}

@@ -462,7 +462,7 @@ class NookalClient(ABC):
         last_name: str | None = None,
         date_of_birth: str | None = None,
         fuzzy_search: str | None = None,
-        suburb: str | None = None,
+        suburb: str | list[str] | None = None,
         age_min: int | None = None,
         age_max: int | None = None,
         appointment_from: date | None = None,
@@ -1112,7 +1112,7 @@ class HttpNookalClient(NookalClient):
         last_name: str | None = None,
         date_of_birth: str | None = None,
         fuzzy_search: str | None = None,
-        suburb: str | None = None,
+        suburb: str | list[str] | None = None,
         age_min: int | None = None,
         age_max: int | None = None,
         appointment_from: date | None = None,
@@ -1159,8 +1159,13 @@ class HttpNookalClient(NookalClient):
 
         # Client-side demographic filtering
         if suburb is not None:
-            needle = suburb.casefold()
-            results = [p for p in results if (p.suburb or "").casefold() == needle]
+            if isinstance(suburb, (list, set, tuple)):
+                suburbs_set = {s.casefold() for s in suburb if s}
+                if suburbs_set:
+                    results = [p for p in results if (p.suburb or "").casefold() in suburbs_set]
+            else:
+                needle = suburb.casefold()
+                results = [p for p in results if (p.suburb or "").casefold() == needle]
 
         as_of = date.today()
         if age_min is not None or age_max is not None:
@@ -3330,7 +3335,7 @@ class MockNookalClient(NookalClient):
         last_name: str | None = None,
         date_of_birth: str | None = None,
         fuzzy_search: str | None = None,
-        suburb: str | None = None,
+        suburb: str | list[str] | None = None,
         age_min: int | None = None,
         age_max: int | None = None,
         appointment_from: date | None = None,
@@ -3353,8 +3358,13 @@ class MockNookalClient(NookalClient):
             needle = fuzzy_search.lower()
             results = [p for p in results if needle in (p.display_name or "").lower() or needle in (p.phone or "")]
         if suburb is not None:
-            needle = suburb.casefold()
-            results = [p for p in results if (p.suburb or "").casefold() == needle]
+            if isinstance(suburb, (list, set, tuple)):
+                suburbs_set = {s.casefold() for s in suburb if s}
+                if suburbs_set:
+                    results = [p for p in results if (p.suburb or "").casefold() in suburbs_set]
+            else:
+                needle = suburb.casefold()
+                results = [p for p in results if (p.suburb or "").casefold() == needle]
 
         as_of = self._age_as_of()
         if age_min is not None or age_max is not None:
