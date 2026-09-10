@@ -15,7 +15,7 @@ import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, time as dt_time, timedelta
 from typing import Any, Callable, Mapping
 import httpx
 
@@ -548,7 +548,7 @@ class HttpNookalClient(NookalClient):
         matched_ids: set[str] = set()
         for r in rows:
             if isinstance(r, Mapping):
-                pid = r.get("ID") or r.get("id") or r.get("patient_id") or r.get("PatientID")
+                pid = r.get("ID") or r.get("id") or r.get("patient_id") or r.get("patientID") or r.get("PatientID") or r.get("patientId") or r.get("PatientId")
                 if pid:
                     matched_ids.add(str(pid))
 
@@ -560,7 +560,7 @@ class HttpNookalClient(NookalClient):
                 r
                 for r in rows
                 if isinstance(r, Mapping)
-                and str(r.get("ID") or r.get("id") or r.get("patient_id") or r.get("PatientID"))
+                and str(r.get("ID") or r.get("id") or r.get("patient_id") or r.get("patientID") or r.get("PatientID") or r.get("patientId") or r.get("PatientId"))
                 == str(patient_id)
             ),
             rows[0],
@@ -652,6 +652,9 @@ class HttpNookalClient(NookalClient):
                     or row.get("id")
                     or row.get("appointment_id")
                     or row.get("appointmentID")
+                    or row.get("AppointmentID")
+                    or row.get("appointmentId")
+                    or row.get("AppointmentId")
                 )
                 if aid and str(aid) == str(appointment_id):
                     return self._parse_appointment(row)
@@ -1049,13 +1052,16 @@ class HttpNookalClient(NookalClient):
             data.get("ID")
             or data.get("id")
             or data.get("patient_id")
+            or data.get("patientID")
             or data.get("PatientID")
+            or data.get("patientId")
+            or data.get("PatientId")
         )
         if not pid:
             raise NookalValidationError("patient payload missing id")
 
-        first = data.get("first_name") or data.get("FirstName") or data.get("firstname") or ""
-        last = data.get("last_name") or data.get("LastName") or data.get("lastname") or ""
+        first = data.get("firstName") or data.get("first_name") or data.get("FirstName") or data.get("firstname") or ""
+        last = data.get("lastName") or data.get("last_name") or data.get("LastName") or data.get("lastname") or ""
         full = (f"{first} {last}".strip()) or data.get("name") or data.get("full_name") or data.get("Name") or None
 
         phone = (
@@ -1067,7 +1073,7 @@ class HttpNookalClient(NookalClient):
         )
         email = data.get("email") or data.get("Email")
 
-        dob_raw = data.get("DOB") or data.get("date_of_birth") or data.get("dob")
+        dob_raw = data.get("DOB") or data.get("date_of_birth") or data.get("dateOfBirth") or data.get("dob")
         parsed_dob = None
         if dob_raw:
             if isinstance(dob_raw, date):
@@ -1110,26 +1116,94 @@ class HttpNookalClient(NookalClient):
             or data.get("id")
             or data.get("appointment_id")
             or data.get("appointmentID")
+            or data.get("AppointmentID")
+            or data.get("appointmentId")
+            or data.get("AppointmentId")
         )
         pid = (
             data.get("patientID")
             or data.get("patient_id")
             or data.get("PatientID")
+            or data.get("patientId")
+            or data.get("PatientId")
         )
         if not pid and isinstance(data.get("patient"), Mapping):
-            pid = data["patient"].get("ID") or data["patient"].get("id") or data["patient"].get("patient_id")
+            pid = (
+                data["patient"].get("ID")
+                or data["patient"].get("id")
+                or data["patient"].get("patient_id")
+                or data["patient"].get("patientID")
+                or data["patient"].get("PatientID")
+                or data["patient"].get("patientId")
+                or data["patient"].get("PatientId")
+            )
+        elif not pid and isinstance(data.get("patient"), (str, int)):
+            pid = data.get("patient")
 
         if not aid or not pid:
             raise NookalValidationError("appointment payload missing required fields (id, patient_id)")
 
-        appt_date_raw = data.get("date") or data.get("appointment_date")
-        start_time_raw = data.get("startTime") or data.get("start_time") or data.get("time")
-        end_time_raw = data.get("endTime") or data.get("end_time")
+        appt_date_raw = (
+            data.get("appointmentDate")
+            or data.get("appointment_date")
+            or data.get("AppointmentDate")
+            or data.get("date")
+            or data.get("Date")
+            or data.get("startDate")
+            or data.get("start_date")
+            or data.get("StartDate")
+        )
+        start_time_raw = (
+            data.get("appointmentStartTime")
+            or data.get("appointment_start_time")
+            or data.get("AppointmentStartTime")
+            or data.get("startTime")
+            or data.get("start_time")
+            or data.get("StartTime")
+            or data.get("appointmentTime")
+            or data.get("appointment_time")
+            or data.get("AppointmentTime")
+            or data.get("time")
+            or data.get("Time")
+            or data.get("timeStart")
+            or data.get("time_start")
+            or data.get("TimeStart")
+        )
+        end_time_raw = (
+            data.get("appointmentEndTime")
+            or data.get("appointment_end_time")
+            or data.get("AppointmentEndTime")
+            or data.get("endTime")
+            or data.get("end_time")
+            or data.get("EndTime")
+            or data.get("timeEnd")
+            or data.get("time_end")
+            or data.get("TimeEnd")
+        )
+        end_date_raw = (
+            data.get("appointmentEndDate")
+            or data.get("appointment_end_date")
+            or data.get("AppointmentEndDate")
+            or data.get("endDate")
+            or data.get("end_date")
+            or data.get("EndDate")
+            or appt_date_raw
+        )
 
-        starts_at = None
-        if appt_date_raw and start_time_raw:
-            clean_date = str(appt_date_raw).strip()
-            clean_time = str(start_time_raw).strip()
+        def _try_parse_dt(val: Any) -> datetime | None:
+            if not val:
+                return None
+            if isinstance(val, datetime):
+                return val
+            if isinstance(val, date):
+                return datetime.combine(val, dt_time.min)
+            s = str(val).strip()
+            if not s:
+                return None
+            try:
+                return datetime.fromisoformat(s.replace("Z", "+00:00"))
+            except ValueError:
+                pass
             for fmt in (
                 "%Y-%m-%dT%H:%M:%S",
                 "%Y-%m-%dT%H:%M",
@@ -1139,71 +1213,117 @@ class HttpNookalClient(NookalClient):
                 "%Y-%m-%d %I:%M%p",
                 "%d/%m/%Y %H:%M:%S",
                 "%d/%m/%Y %H:%M",
+                "%d/%m/%Y %I:%M %p",
+                "%d/%m/%Y %I:%M%p",
+                "%m/%d/%Y %H:%M:%S",
+                "%m/%d/%Y %H:%M",
+                "%Y/%m/%d %H:%M:%S",
+                "%Y/%m/%d %H:%M",
+            ):
+                try:
+                    return datetime.strptime(s, fmt)
+                except ValueError:
+                    pass
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"):
+                try:
+                    return datetime.combine(datetime.strptime(s[:10], fmt).date(), dt_time.min)
+                except ValueError:
+                    pass
+            return None
+
+        def _try_parse_combined(d_val: Any, t_val: Any) -> datetime | None:
+            if not d_val or not t_val:
+                return None
+            clean_date = str(d_val).strip()
+            clean_time = str(t_val).strip()
+            if not clean_date or not clean_time:
+                return None
+            if "T" in clean_time or ("-" in clean_time and len(clean_time) >= 10):
+                parsed = _try_parse_dt(clean_time)
+                if parsed:
+                    return parsed
+            for fmt in (
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%dT%H:%M",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%d %I:%M %p",
+                "%Y-%m-%d %I:%M%p",
+                "%d/%m/%Y %H:%M:%S",
+                "%d/%m/%Y %H:%M",
+                "%d/%m/%Y %I:%M %p",
+                "%d/%m/%Y %I:%M%p",
+                "%m/%d/%Y %H:%M:%S",
+                "%m/%d/%Y %H:%M",
+                "%Y/%m/%d %H:%M:%S",
+                "%Y/%m/%d %H:%M",
             ):
                 try:
                     s = f"{clean_date}T{clean_time}".replace(" ", "T", 1) if "T" in fmt else f"{clean_date} {clean_time}"
-                    starts_at = datetime.strptime(s, fmt)
-                    break
+                    return datetime.strptime(s, fmt)
                 except ValueError:
                     pass
-            if starts_at is None:
-                try:
-                    starts_at = datetime.fromisoformat(f"{clean_date}T{clean_time}")
-                except ValueError:
-                    pass
+            try:
+                return datetime.fromisoformat(f"{clean_date}T{clean_time}")
+            except ValueError:
+                pass
+            return None
+
+        starts_at = None
+        if appt_date_raw and start_time_raw:
+            starts_at = _try_parse_combined(appt_date_raw, start_time_raw)
 
         if starts_at is None:
-            starts = (
-                data.get("starts_at")
-                or data.get("start")
-                or data.get("datetime")
-                or data.get("appointment_datetime")
-            )
-            if isinstance(starts, datetime):
-                starts_at = starts
-            elif starts:
-                try:
-                    starts_at = datetime.fromisoformat(str(starts).replace("Z", "+00:00"))
-                except ValueError:
-                    pass
+            for candidate in (
+                data.get("starts_at"),
+                data.get("start"),
+                data.get("datetime"),
+                data.get("DateTime"),
+                data.get("appointment_datetime"),
+                data.get("appointmentDateTime"),
+                data.get("startDateTime"),
+                data.get("start_datetime"),
+                data.get("StartDateTime"),
+            ):
+                starts_at = _try_parse_dt(candidate)
+                if starts_at is not None:
+                    break
+
+        if starts_at is None and appt_date_raw:
+            starts_at = _try_parse_dt(appt_date_raw)
+
+        if starts_at is None and start_time_raw:
+            starts_at = _try_parse_dt(start_time_raw)
 
         if starts_at is None:
             raise NookalValidationError("appointment payload missing start time/date")
 
         ends_at = None
-        if appt_date_raw and end_time_raw:
-            clean_date = str(appt_date_raw).strip()
-            clean_time = str(end_time_raw).strip()
-            for fmt in (
-                "%Y-%m-%dT%H:%M:%S",
-                "%Y-%m-%dT%H:%M",
-                "%Y-%m-%d %H:%M:%S",
-                "%Y-%m-%d %H:%M",
-                "%Y-%m-%d %I:%M %p",
-                "%Y-%m-%d %I:%M%p",
-                "%d/%m/%Y %H:%M:%S",
-                "%d/%m/%Y %H:%M",
-            ):
-                try:
-                    s = f"{clean_date}T{clean_time}".replace(" ", "T", 1) if "T" in fmt else f"{clean_date} {clean_time}"
-                    ends_at = datetime.strptime(s, fmt)
-                    break
-                except ValueError:
-                    pass
-            if ends_at is None:
-                try:
-                    ends_at = datetime.fromisoformat(f"{clean_date}T{clean_time}")
-                except ValueError:
-                    pass
+        if end_date_raw and end_time_raw:
+            ends_at = _try_parse_combined(end_date_raw, end_time_raw)
+        elif appt_date_raw and end_time_raw:
+            ends_at = _try_parse_combined(appt_date_raw, end_time_raw)
 
         if ends_at is None:
-            ends = data.get("ends_at") or data.get("end")
-            if isinstance(ends, datetime):
-                ends_at = ends
-            elif ends:
+            for candidate in (
+                data.get("ends_at"),
+                data.get("end"),
+                data.get("endDateTime"),
+                data.get("end_datetime"),
+                data.get("EndDateTime"),
+                data.get("appointmentEndDateTime"),
+                data.get("appointment_end_datetime"),
+            ):
+                ends_at = _try_parse_dt(candidate)
+                if ends_at is not None:
+                    break
+
+        if ends_at is None and starts_at is not None:
+            dur = data.get("duration") or data.get("length") or data.get("duration_minutes") or data.get("durationMinutes")
+            if dur:
                 try:
-                    ends_at = datetime.fromisoformat(str(ends).replace("Z", "+00:00"))
-                except ValueError:
+                    ends_at = starts_at + timedelta(minutes=int(dur))
+                except (ValueError, TypeError):
                     pass
 
         cancelled_val = str(data.get("cancelled", "")).strip()
@@ -1221,8 +1341,20 @@ class HttpNookalClient(NookalClient):
         else:
             status = "booked"
 
-        loc_id = data.get("locationID") or data.get("location_id") or data.get("LocationID")
-        prac_id = data.get("practitionerID") or data.get("practitioner_id") or data.get("PractitionerID")
+        loc_id = (
+            data.get("locationID")
+            or data.get("location_id")
+            or data.get("LocationID")
+            or data.get("locationId")
+            or data.get("location")
+        )
+        prac_id = (
+            data.get("practitionerID")
+            or data.get("practitioner_id")
+            or data.get("PractitionerID")
+            or data.get("practitionerId")
+            or data.get("practitioner")
+        )
 
         return Appointment(
             appointment_id=str(aid),

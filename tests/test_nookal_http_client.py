@@ -719,3 +719,443 @@ def test_dict_of_records_envelope_support() -> None:
     assert patients[0].display_name == "Kyle Reese"
     assert patients[1].patient_id == "202"
     assert patients[1].display_name == "Miles Dyson"
+
+
+# ---------------------------------------------------------------------------
+# Regression tests: actual live Nookal response shape (camelCase fields)
+# ---------------------------------------------------------------------------
+
+
+def test_live_nookal_appointment_camelcase_fields() -> None:
+    """
+    Regression: live Nookal /getAppointments returns camelCase field names
+    like appointmentDate, appointmentStartTime, appointmentEndTime.
+    The parser must handle these without raising NookalValidationError.
+    Uses sanitized fixture data — no real patient information.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "api_call": "getAppointments",
+                    "results": {
+                        "appointments": [
+                            {
+                                "ID": "90001",
+                                "patientID": "5001",
+                                "appointmentDate": "2026-09-10",
+                                "appointmentStartTime": "09:00:00",
+                                "appointmentEndTime": "09:30:00",
+                                "locationID": "1",
+                                "practitionerID": "12",
+                                "typeID": "27",
+                                "type": "Consultation",
+                                "arrived": "0",
+                                "DNA": "0",
+                                "cancelled": "0",
+                                "notes": "Follow-up",
+                                "emailReminderSent": "1",
+                                "invoiceGenerated": "0",
+                                "cancellationDate": "",
+                                "dateCreated": "2026-09-01 08:00:00",
+                                "dateModified": "2026-09-01 08:00:00",
+                            },
+                            {
+                                "ID": "90002",
+                                "patientID": "5002",
+                                "appointmentDate": "2026-09-10",
+                                "appointmentStartTime": "10:00:00",
+                                "appointmentEndTime": "10:45:00",
+                                "locationID": "1",
+                                "practitionerID": "15",
+                                "typeID": "33",
+                                "type": "Consultation",
+                                "arrived": "1",
+                                "DNA": "0",
+                                "cancelled": "0",
+                                "notes": "",
+                            },
+                            {
+                                "ID": "90003",
+                                "patientID": "5003",
+                                "appointmentDate": "2026-09-10",
+                                "appointmentStartTime": "11:00:00",
+                                "appointmentEndTime": "11:30:00",
+                                "locationID": "2",
+                                "practitionerID": "12",
+                                "cancelled": "1",
+                                "cancellationDate": "2026-09-09 16:30:00",
+                                "arrived": "0",
+                                "DNA": "0",
+                            },
+                            {
+                                "ID": "90004",
+                                "patientID": "5004",
+                                "appointmentDate": "2026-09-10",
+                                "appointmentStartTime": "14:00:00",
+                                "appointmentEndTime": "14:30:00",
+                                "locationID": "1",
+                                "practitionerID": "12",
+                                "arrived": "0",
+                                "DNA": "1",
+                                "cancelled": "0",
+                            },
+                        ]
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    appts = nookal.list_appointments(on_date=date(2026, 9, 10))
+    assert len(appts) == 4
+
+    # Appointment 1: normal booked
+    assert appts[0].appointment_id == "90001"
+    assert appts[0].patient_id == "5001"
+    assert appts[0].starts_at == datetime(2026, 9, 10, 9, 0)
+    assert appts[0].ends_at == datetime(2026, 9, 10, 9, 30)
+    assert appts[0].status == "booked"
+    assert appts[0].location_id == "1"
+    assert appts[0].practitioner_id == "12"
+
+    # Appointment 2: arrived
+    assert appts[1].appointment_id == "90002"
+    assert appts[1].patient_id == "5002"
+    assert appts[1].starts_at == datetime(2026, 9, 10, 10, 0)
+    assert appts[1].ends_at == datetime(2026, 9, 10, 10, 45)
+    assert appts[1].status == "arrived"
+    assert appts[1].practitioner_id == "15"
+
+    # Appointment 3: cancelled
+    assert appts[2].appointment_id == "90003"
+    assert appts[2].status == "cancelled"
+
+    # Appointment 4: DNA
+    assert appts[3].appointment_id == "90004"
+    assert appts[3].status == "dna"
+
+
+def test_live_nookal_appointment_mixed_casing() -> None:
+    """
+    Regression: Nookal may return a mix of date/startTime alongside
+    appointmentDate/appointmentStartTime across API versions.
+    Both must parse correctly.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": [
+                    {
+                        "ID": "80001",
+                        "patientID": "4001",
+                        "date": "2026-09-12",
+                        "startTime": "08:30:00",
+                        "endTime": "09:00:00",
+                        "cancelled": "0",
+                        "DNA": "0",
+                        "arrived": "0",
+                    },
+                    {
+                        "ID": "80002",
+                        "patientID": "4002",
+                        "appointmentDate": "2026-09-12",
+                        "appointmentStartTime": "10:30:00",
+                        "appointmentEndTime": "11:00:00",
+                        "cancelled": "0",
+                        "DNA": "0",
+                        "arrived": "0",
+                    },
+                ],
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    appts = nookal.list_appointments()
+    assert len(appts) == 2
+
+    assert appts[0].appointment_id == "80001"
+    assert appts[0].starts_at == datetime(2026, 9, 12, 8, 30)
+    assert appts[0].ends_at == datetime(2026, 9, 12, 9, 0)
+
+    assert appts[1].appointment_id == "80002"
+    assert appts[1].starts_at == datetime(2026, 9, 12, 10, 30)
+    assert appts[1].ends_at == datetime(2026, 9, 12, 11, 0)
+
+
+def test_live_nookal_patient_camelcase_fields() -> None:
+    """
+    Regression: live Nookal /getPatients may return camelCase field names
+    like firstName, lastName, dateOfBirth instead of FirstName, LastName, DOB.
+    Uses sanitized fixture data — no real patient information.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "api_call": "getPatients",
+                    "results": {
+                        "patients": [
+                            {
+                                "ID": "7001",
+                                "firstName": "Test",
+                                "lastName": "Patient",
+                                "dateOfBirth": "1990-06-15",
+                                "email": "test@example.com",
+                                "mobile": "+61400000001",
+                                "suburb": "Testville",
+                            },
+                            {
+                                "ID": "7002",
+                                "firstName": "Sample",
+                                "lastName": "User",
+                                "DOB": "1985-03-20",
+                                "email": "sample@example.com",
+                                "mobile": "+61400000002",
+                            },
+                        ]
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    patients = nookal.search_patients()
+    assert len(patients) == 2
+
+    assert patients[0].patient_id == "7001"
+    assert patients[0].display_name == "Test Patient"
+    assert patients[0].date_of_birth == date(1990, 6, 15)
+    assert patients[0].phone == "+61400000001"
+    assert patients[0].email == "test@example.com"
+    assert patients[0].suburb == "Testville"
+
+    assert patients[1].patient_id == "7002"
+    assert patients[1].display_name == "Sample User"
+    assert patients[1].date_of_birth == date(1985, 3, 20)
+
+
+def test_live_nookal_dict_of_records_camelcase() -> None:
+    """
+    Regression: Nookal PHP may serialize arrays as JSON objects (dict-of-records)
+    AND use camelCase field names. Both must be handled together.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "api_call": "getAppointments",
+                    "results": {
+                        "appointments": {
+                            "0": {
+                                "ID": "60001",
+                                "patientID": "3001",
+                                "appointmentDate": "2026-09-15",
+                                "appointmentStartTime": "13:00:00",
+                                "appointmentEndTime": "13:30:00",
+                                "locationID": "1",
+                                "practitionerID": "8",
+                                "arrived": "0",
+                                "DNA": "0",
+                                "cancelled": "0",
+                            },
+                            "1": {
+                                "ID": "60002",
+                                "patientID": "3002",
+                                "appointmentDate": "2026-09-15",
+                                "appointmentStartTime": "14:00:00",
+                                "appointmentEndTime": "14:45:00",
+                                "locationID": "2",
+                                "practitionerID": "8",
+                                "arrived": "1",
+                                "DNA": "0",
+                                "cancelled": "0",
+                            },
+                        }
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    appts = nookal.list_appointments()
+    assert len(appts) == 2
+    assert appts[0].appointment_id == "60001"
+    assert appts[0].starts_at == datetime(2026, 9, 15, 13, 0)
+    assert appts[0].ends_at == datetime(2026, 9, 15, 13, 30)
+    assert appts[0].status == "booked"
+
+    assert appts[1].appointment_id == "60002"
+    assert appts[1].starts_at == datetime(2026, 9, 15, 14, 0)
+    assert appts[1].status == "arrived"
+
+
+def test_get_appointment_by_id_camelcase() -> None:
+    """
+    Regression: get_appointment() must find an appointment by ID when the
+    response uses camelCase field names from the live API.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "api_call": "getAppointments",
+                    "results": {
+                        "appointments": [
+                            {
+                                "ID": "55001",
+                                "patientID": "2001",
+                                "appointmentDate": "2026-09-20",
+                                "appointmentStartTime": "16:00:00",
+                                "appointmentEndTime": "16:30:00",
+                                "locationID": "1",
+                                "practitionerID": "5",
+                                "arrived": "0",
+                                "DNA": "0",
+                                "cancelled": "0",
+                            },
+                        ]
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    appt = nookal.get_appointment("55001")
+    assert appt.appointment_id == "55001"
+    assert appt.patient_id == "2001"
+    assert appt.starts_at == datetime(2026, 9, 20, 16, 0)
+    assert appt.ends_at == datetime(2026, 9, 20, 16, 30)
+    assert appt.location_id == "1"
+    assert appt.practitioner_id == "5"
+    assert appt.status == "booked"
+
+    with pytest.raises(NookalNotFound):
+        nookal.get_appointment("99999")
+
+
+def test_appointment_robust_datetime_and_id_variants() -> None:
+    """
+    Ensure _parse_appointment handles:
+    - appointmentDate containing full datetime string (no startTime field)
+    - appointmentDate date-only string (defaults to midnight)
+    - appointmentTime alternate field name
+    - appointmentId and patientId (lowercase d)
+    - duration field calculating ends_at
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "api_call": "getAppointments",
+                    "results": {
+                        "appointments": [
+                            {
+                                "appointmentId": "70001",
+                                "patientId": "3001",
+                                "appointmentDate": "2026-10-01 11:30:00",
+                                "duration": "45",
+                            },
+                            {
+                                "appointmentID": "70002",
+                                "patientID": "3002",
+                                "appointmentDate": "2026-10-02",
+                            },
+                            {
+                                "id": "70003",
+                                "patient_id": "3003",
+                                "date": "2026-10-03",
+                                "appointmentTime": "15:45:00",
+                                "appointmentEndTime": "16:15:00",
+                            },
+                        ]
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    appts = nookal.list_appointments()
+    assert len(appts) == 3
+
+    # Full timestamp in appointmentDate + duration calculation for ends_at
+    assert appts[0].appointment_id == "70001"
+    assert appts[0].patient_id == "3001"
+    assert appts[0].starts_at == datetime(2026, 10, 1, 11, 30)
+    assert appts[0].ends_at == datetime(2026, 10, 1, 12, 15)
+
+    # Date-only in appointmentDate
+    assert appts[1].appointment_id == "70002"
+    assert appts[1].patient_id == "3002"
+    assert appts[1].starts_at == datetime(2026, 10, 2, 0, 0)
+    assert appts[1].ends_at is None
+
+    # appointmentTime variant
+    assert appts[2].appointment_id == "70003"
+    assert appts[2].patient_id == "3003"
+    assert appts[2].starts_at == datetime(2026, 10, 3, 15, 45)
+    assert appts[2].ends_at == datetime(2026, 10, 3, 16, 15)
+
+
+def test_patient_id_variants_in_search_and_get() -> None:
+    """
+    Ensure get_patient and _parse_patient work with patientId and patientID.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "api_call": "getPatients",
+                    "results": {
+                        "patients": [
+                            {
+                                "patientId": "9001",
+                                "firstName": "Alice",
+                                "lastName": "Wonder",
+                            }
+                        ]
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    patient = nookal.get_patient("9001")
+    assert patient.patient_id == "9001"
+    assert patient.display_name == "Alice Wonder"
+
