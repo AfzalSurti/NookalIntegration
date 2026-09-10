@@ -25,6 +25,14 @@ from app.nookal_client.client import (
     WaitingListEntry,
     build_client,
 )
+from app.shared.exceptions import (
+    NookalFileError,
+    NookalFileNotFound,
+    NookalInvalidFileId,
+    NookalRequestFailed,
+    NookalResponseInvalid,
+    NookalUrlMissing,
+)
 
 __all__ = [
     "Appointment",
@@ -39,6 +47,12 @@ __all__ = [
     "Location",
     "MockNookalClient",
     "NookalClient",
+    "NookalFileError",
+    "NookalFileNotFound",
+    "NookalInvalidFileId",
+    "NookalRequestFailed",
+    "NookalResponseInvalid",
+    "NookalUrlMissing",
     "PatientExtra",
     "PatientFile",
     "PatientRef",

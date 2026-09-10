@@ -71,5 +71,35 @@ class NookalServerError(NookalError):
     pass
 
 
+class NookalFileError(NookalError):
+    """Base exception for Nookal file operations with an error code."""
+    code: str = "NOOKAL_REQUEST_FAILED"
+
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        if code:
+            self.code = code
+
+
+class NookalFileNotFound(NookalNotFound, NookalFileError):
+    code: str = "NOOKAL_FILE_NOT_FOUND"
+
+
+class NookalInvalidFileId(NookalValidationError, NookalFileError):
+    code: str = "NOOKAL_INVALID_FILE_ID"
+
+
+class NookalResponseInvalid(NookalFileError):
+    code: str = "NOOKAL_RESPONSE_INVALID"
+
+
+class NookalUrlMissing(NookalFileError):
+    code: str = "NOOKAL_URL_MISSING"
+
+
+class NookalRequestFailed(NookalServerError, NookalFileError):
+    code: str = "NOOKAL_REQUEST_FAILED"
+
+
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]

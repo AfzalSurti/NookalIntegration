@@ -15,6 +15,7 @@ from app.nookal_client.client import (
     Appointment,
     DocumentMeta,
     MockNookalClient,
+    PatientFile,
     PatientRef,
     Referral,
     Referrer,
@@ -134,6 +135,18 @@ def load_clinic_seed(
                 document_id=str(row["document_id"]),
                 patient_id=str(row["patient_id"]),
                 title=row.get("title"),
+            )
+        )
+
+    for row in data.get("files") or []:
+        client.seed_file(
+            PatientFile(
+                file_id=str(row["file_id"]),
+                patient_id=str(row["patient_id"]),
+                name=str(row.get("name", "file")),
+                file_type=row.get("file_type", "pdf"),
+                date_added=row.get("date_added"),
+                size=row.get("size"),
             )
         )
 

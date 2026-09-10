@@ -25,9 +25,15 @@ from app.shared.exceptions import (
     KillSwitchActive,
     NookalAuthError,
     NookalError,
+    NookalFileError,
+    NookalFileNotFound,
+    NookalInvalidFileId,
     NookalNotFound,
     NookalRateLimit,
+    NookalRequestFailed,
+    NookalResponseInvalid,
     NookalServerError,
+    NookalUrlMissing,
     NookalValidationError,
 )
 from app.shared.kill_switch import assert_allows
@@ -38,7 +44,10 @@ UNSUPPORTED_BY_DOCUMENTED_NOOKAL_API = "UNSUPPORTED_BY_DOCUMENTED_NOOKAL_API"
 AuditFn = Callable[..., Any]
 
 _SECRET_RE = re.compile(r"([?&]api_key=)[^&\s'\"]+", re.IGNORECASE)
-_S3_SIGNATURE_RE = re.compile(r"([?&](?:X-Amz-Signature|Signature|AWSAccessKeyId|X-Amz-Credential|X-Amz-Security-Token)=)[^&\s'\"]+", re.IGNORECASE)
+_S3_SIGNATURE_RE = re.compile(
+    r"([?&](?:X-Amz-Signature|Signature|signature|sig|AWSAccessKeyId|X-Amz-Credential|X-Amz-Security-Token|token|Key-Pair-Id)=)[^&\s'\"]+",
+    re.IGNORECASE,
+)
 
 
 def _redact_secrets(text: str, api_key: str | None = None) -> str:
@@ -50,6 +59,62 @@ def _redact_secrets(text: str, api_key: str | None = None) -> str:
     if api_key and api_key.strip():
         redacted = redacted.replace(api_key, "[REDACTED]")
     return redacted
+
+
+def redact_url(url: str) -> str:
+    """Strip all query parameters and credentials from a URL for safe logging."""
+    if not url:
+        return url
+    if "?" in url:
+        base, _ = url.split("?", 1)
+        return f"{base}?[REDACTED]"
+    return url
+
+
+def _extract_file_url(data: Any) -> str | None:
+    """
+    Extract download/view URL from Nookal /getFileUrl payload.
+    Supports official Nookal v2 response shape:
+      {"results": {"url": "https://..."}}
+      {"api_call": "getFileUrl", "results": {"url": "https://..."}}
+    As well as flat or nested fallback shapes:
+      {"url": "https://..."}, {"file_url": "https://..."}, {"file": {"url": "https://..."}}
+    """
+    if not data:
+        return None
+    if isinstance(data, str):
+        s = data.strip()
+        if s.startswith(("http://", "https://")):
+            return s
+        return None
+    if isinstance(data, list):
+        for item in data:
+            u = _extract_file_url(item)
+            if u:
+                return u
+        return None
+    if isinstance(data, Mapping):
+        # 1. Direct candidate keys
+        for k in ("url", "URL", "file_url", "fileUrl", "download_url", "downloadUrl", "link", "fileURL"):
+            val = data.get(k)
+            if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
+                return val.strip()
+
+        # 2. Preferred containers ("results" is official Nookal v2 container)
+        for container_key in ("results", "file", "files", "data"):
+            container = data.get(container_key)
+            if container is not None:
+                u = _extract_file_url(container)
+                if u:
+                    return u
+
+        # 3. Recursive fallback for any nested mapping or list
+        for v in data.values():
+            if isinstance(v, (Mapping, list)):
+                u = _extract_file_url(v)
+                if u:
+                    return u
+    return None
 
 
 def _unwrap_collection(data: Any, preferred_key: str | None = None) -> list[Any]:
@@ -931,8 +996,12 @@ class HttpNookalClient(NookalClient):
         if status in (401, 403):
             raise NookalAuthError(f"auth failed on {action} ({status})")
         if status == 404:
+            if action == "get_file_url":
+                raise NookalFileNotFound(f"{action}: {target_id} not found")
             raise NookalNotFound(f"{action}: {target_id} not found")
         if status == 422:
+            if action == "get_file_url":
+                raise NookalInvalidFileId(f"validation error on {action}")
             raise NookalValidationError(f"validation error on {action}")
         if status == 429:
             retry_after = response.headers.get("Retry-After")
@@ -941,8 +1010,12 @@ class HttpNookalClient(NookalClient):
             raise exc
         if status >= 500:
             redacted = _redact_secrets(response.text[:200], self._config.api_key)
+            if action == "get_file_url":
+                raise NookalRequestFailed(f"Nookal {status} on {action}: {redacted}")
             raise NookalServerError(f"Nookal {status} on {action}: {redacted}")
         if status >= 400:
+            if action == "get_file_url":
+                raise NookalRequestFailed(f"Nookal {status} on {action}")
             raise NookalError(f"Nookal {status} on {action}")
 
         if status == 204 or not response.content:
@@ -951,6 +1024,8 @@ class HttpNookalClient(NookalClient):
         try:
             payload = response.json()
         except ValueError as exc:
+            if action == "get_file_url":
+                raise NookalResponseInvalid(f"non-JSON response on {action}") from exc
             raise NookalError(f"non-JSON response on {action}") from exc
 
         if isinstance(payload, Mapping):
@@ -962,12 +1037,24 @@ class HttpNookalClient(NookalClient):
                     or payload.get("error")
                     or "API error"
                 )
-                sanitized_details = _redact_secrets(str(details), self._config.api_key)
+                if isinstance(details, Mapping):
+                    details_str = details.get("errorMessage") or details.get("message") or str(details)
+                else:
+                    details_str = str(details)
+                sanitized_details = _redact_secrets(details_str, self._config.api_key)
                 lower_details = sanitized_details.lower()
-                if any(x in lower_details for x in ("not found", "no records found", "0 results", "does not exist")):
+                if any(x in lower_details for x in ("not found", "no records found", "0 results", "does not exist", "does not belong")):
+                    if action == "get_file_url":
+                        raise NookalFileNotFound(f"{action}: {sanitized_details}")
                     raise NookalNotFound(f"{action}: {sanitized_details}")
+                if any(x in lower_details for x in ("invalid file", "invalid id", "file_id", "file id", "invalid parameter")):
+                    if action == "get_file_url":
+                        raise NookalInvalidFileId(f"{action}: {sanitized_details}")
+                    raise NookalValidationError(f"{action}: {sanitized_details}")
                 if any(x in lower_details for x in ("auth", "unauthorized", "api key", "invalid key", "forbidden")):
                     raise NookalAuthError(f"auth failed on {action}: {sanitized_details}")
+                if action == "get_file_url":
+                    raise NookalRequestFailed(f"Nookal error on {action}: {sanitized_details}")
                 raise NookalError(f"Nookal error on {action}: {sanitized_details}")
 
             if "data" in payload:
@@ -2035,39 +2122,40 @@ class HttpNookalClient(NookalClient):
         return [self._parse_patient_file(r, fallback_patient_id=patient_id) for r in rows if isinstance(r, Mapping)]
 
     def get_file_url(self, patient_id: str, file_id: str) -> str:
-        if not patient_id or not file_id:
-            raise NookalValidationError("patient_id and file_id are required for get_file_url")
-        data = self._request(
-            "GET",
-            "/getFileUrl",
-            action="get_file_url",
-            target_type="patient_record",
-            target_id=f"{patient_id}_{file_id}",
-            params={"patient_id": patient_id, "file_id": file_id},
-        )
-        url = None
-        if isinstance(data, Mapping):
-            url = (
-                data.get("url")
-                or data.get("URL")
-                or data.get("file_url")
-                or data.get("fileUrl")
-                or data.get("download_url")
-                or data.get("downloadUrl")
+        clean_pid = str(patient_id or "").strip()
+        clean_fid = str(file_id or "").strip()
+        if not clean_pid or not clean_fid:
+            raise NookalInvalidFileId("patient_id and file_id are required for get_file_url")
+        if any(c in clean_fid for c in "/\\?#&="):
+            raise NookalInvalidFileId(f"Invalid file_id format: {clean_fid}")
+
+        try:
+            data = self._request(
+                "GET",
+                "/getFileUrl",
+                action="get_file_url",
+                target_type="patient_record",
+                target_id=f"{clean_pid}_{clean_fid}",
+                params={"patient_id": clean_pid, "file_id": clean_fid},
             )
-            if not url and isinstance(data.get("file"), Mapping):
-                file_obj = data["file"]
-                url = (
-                    file_obj.get("url")
-                    or file_obj.get("URL")
-                    or file_obj.get("file_url")
-                    or file_obj.get("fileUrl")
-                    or file_obj.get("download_url")
-                )
-        elif isinstance(data, str):
-            url = data
+        except (NookalFileNotFound, NookalInvalidFileId, NookalRequestFailed):
+            raise
+        except NookalNotFound as exc:
+            raise NookalFileNotFound(f"Nookal file {clean_fid} not found for patient {clean_pid}") from exc
+        except NookalValidationError as exc:
+            raise NookalInvalidFileId(f"Nookal rejected file {clean_fid}: {exc}") from exc
+        except NookalError as exc:
+            raise NookalRequestFailed(f"Nookal request failed on get_file_url: {exc}") from exc
+
+        url = _extract_file_url(data)
         if not url:
-            raise NookalError(f"getFileUrl did not return a valid download URL for file {file_id}")
+            if not isinstance(data, (Mapping, str, list)):
+                raise NookalResponseInvalid(
+                    f"Unexpected getFileUrl response payload shape: {type(data).__name__}"
+                )
+            raise NookalUrlMissing(
+                f"getFileUrl response did not contain a download URL for file {clean_fid}"
+            )
         return str(url)
 
     def upload_file(
@@ -3676,6 +3764,9 @@ class MockNookalClient(NookalClient):
 
     # --- Documents ---
 
+    def seed_file(self, file: PatientFile) -> None:
+        self.files[file.file_id] = file
+
     def get_patient_files(
         self,
         patient_id: str,
@@ -3684,10 +3775,20 @@ class MockNookalClient(NookalClient):
         page_length: int = 200,
         last_modified: str | None = None,
     ) -> list[PatientFile]:
-        return [f for f in self.files.values() if f.patient_id == patient_id][:page_length]
+        return [f for f in self.files.values() if str(f.patient_id) == str(patient_id)][:page_length]
 
     def get_file_url(self, patient_id: str, file_id: str) -> str:
-        return f"https://s3.amazonaws.com/nookal-files/{patient_id}/{file_id}.pdf?signature=temp"
+        clean_pid = str(patient_id or "").strip()
+        clean_fid = str(file_id or "").strip()
+        if not clean_pid or not clean_fid or any(c in clean_fid for c in "/\\?#&="):
+            raise NookalInvalidFileId("patient_id and file_id are required for get_file_url")
+        if clean_fid in self.files:
+            pfile = self.files[clean_fid]
+            if str(pfile.patient_id) != clean_pid:
+                raise NookalFileNotFound(f"File {clean_fid} does not belong to patient {clean_pid}")
+        elif self.files:
+            raise NookalFileNotFound(f"File {clean_fid} not found for patient {clean_pid}")
+        return f"https://s3.amazonaws.com/nookal-files/{clean_pid}/{clean_fid}.pdf?signature=temp"
 
     def upload_file(
         self,

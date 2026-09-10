@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from app.dashboard.auth import Session, User
 from app.dashboard.authorization import AuthorizationError, Permission
 from app.dashboard.container import DashboardContainer
+from app.shared.exceptions import NookalInvalidFileId
 from app.dashboard.dependencies import (
     approval_service,
     appointment_service,
@@ -329,6 +330,8 @@ async def patient_file_url(
             file_id=file_id,
         )
         return RedirectResponse(url=url, status_code=303)
+    except NookalInvalidFileId as exc:
+        raise HTTPException(status_code=400, detail="File URL could not be retrieved") from exc
     except Exception as exc:
         raise HTTPException(status_code=404, detail="File URL could not be retrieved") from exc
 
