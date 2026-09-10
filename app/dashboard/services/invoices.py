@@ -35,14 +35,22 @@ class InvoiceService:
         page: int = 1,
         page_length: int = 50,
     ) -> list[Invoice]:
-        invoices = self._nookal.get_invoices(
+        all_invoices = self._nookal.get_invoices(
             patient_id=patient_id,
-            date_from=date_from,
-            date_to=date_to,
-            status=status,
-            page=page,
-            page_length=page_length,
+            expanded=1,
         )
+        filtered = all_invoices
+        if status:
+            norm_status = status.lower()
+            filtered = [i for i in filtered if (i.status or "").lower() == norm_status]
+        if date_from:
+            filtered = [i for i in filtered if i.date and i.date >= date_from]
+        if date_to:
+            filtered = [i for i in filtered if i.date and i.date <= date_to]
+
+        start = (max(1, page) - 1) * page_length
+        invoices = filtered[start : start + page_length]
+
         self._audit(
             actor=actor,
             action="dashboard.invoice_list",
@@ -89,7 +97,7 @@ class InvoiceService:
         role: str,
         correlation_id: str,
     ) -> list[InvoiceEntry]:
-        entries = self._nookal.get_invoice_entries(invoice_id)
+        entries = self._nookal.get_invoice_entries(invoice_id=invoice_id)
         self._audit(
             actor=actor,
             action="dashboard.invoice_entries_view",

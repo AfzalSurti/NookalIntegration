@@ -33,16 +33,20 @@ from app.shared.exceptions import (
 from app.shared.kill_switch import assert_allows
 
 
+UNSUPPORTED_BY_DOCUMENTED_NOOKAL_API = "UNSUPPORTED_BY_DOCUMENTED_NOOKAL_API"
+
 AuditFn = Callable[..., Any]
 
 _SECRET_RE = re.compile(r"([?&]api_key=)[^&\s'\"]+", re.IGNORECASE)
+_S3_SIGNATURE_RE = re.compile(r"([?&](?:X-Amz-Signature|Signature|AWSAccessKeyId|X-Amz-Credential|X-Amz-Security-Token)=)[^&\s'\"]+", re.IGNORECASE)
 
 
 def _redact_secrets(text: str, api_key: str | None = None) -> str:
-    """Scrub api_key values from query parameters and raw strings."""
+    """Scrub api_key and presigned S3 query parameters from strings and URLs."""
     if not text:
         return text
     redacted = _SECRET_RE.sub(r"\1[REDACTED]", str(text))
+    redacted = _S3_SIGNATURE_RE.sub(r"\1[REDACTED]", redacted)
     if api_key and api_key.strip():
         redacted = redacted.replace(api_key, "[REDACTED]")
     return redacted
@@ -408,6 +412,14 @@ class NookalClient(ABC):
     def find_patient_by_phone(self, phone: str) -> list[PatientRef]:
         ...
 
+    @abstractmethod
+    def add_patient(self, payload: Mapping[str, Any]) -> PatientRef:
+        ...
+
+    @abstractmethod
+    def edit_patient(self, patient_id: str, payload: Mapping[str, Any]) -> PatientRef:
+        ...
+
     # --- Cases ---
 
     @abstractmethod
@@ -686,7 +698,7 @@ class NookalClient(ABC):
     @abstractmethod
     def get_invoices(
         self,
-        patient_id: str,
+        patient_id: str | None = None,
         *,
         last_modified: str | None = None,
         void: int | None = None,
@@ -724,6 +736,34 @@ class NookalClient(ABC):
 
     @abstractmethod
     def get_invoice_adjustments(self, **params: Any) -> list[Mapping[str, Any]]:
+        ...
+
+    @abstractmethod
+    def add_invoice(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        ...
+
+    @abstractmethod
+    def delete_invoice(self, invoice_id: str) -> bool:
+        ...
+
+    @abstractmethod
+    def add_item_to_invoice(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        ...
+
+    @abstractmethod
+    def delete_item_from_invoice(self, item_id: str) -> bool:
+        ...
+
+    @abstractmethod
+    def add_payment_to_invoice(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        ...
+
+    @abstractmethod
+    def delete_payment_from_invoice(self, payment_id: str) -> bool:
+        ...
+
+    @abstractmethod
+    def add_account_credit(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         ...
 
 
@@ -1119,6 +1159,71 @@ class HttpNookalClient(NookalClient):
                 if p.phone == phone or (clean_phone and p_clean == clean_phone):
                     matched.append(p)
         return matched
+
+    def add_patient(self, payload: Mapping[str, Any]) -> PatientRef:
+        first_name = (
+            payload.get("firstName")
+            or payload.get("first_name")
+            or payload.get("FirstName")
+        )
+        last_name = (
+            payload.get("lastName")
+            or payload.get("last_name")
+            or payload.get("LastName")
+        )
+        if not first_name or not last_name:
+            raise NookalValidationError("add_patient requires both first_name and last_name")
+
+        body: dict[str, Any] = {}
+        for k, v in payload.items():
+            if v is not None:
+                body[k] = v
+
+        data = self._request(
+            "POST",
+            "/addPatient",
+            action="add_patient",
+            target_type="patient_record",
+            target_id="new",
+            is_write=True,
+            json_body=body,
+        )
+        if isinstance(data, Mapping):
+            return self._parse_patient(data)
+        return PatientRef(
+            patient_id=str(data or "new"),
+            first_name=str(first_name),
+            last_name=str(last_name),
+            display_name=f"{first_name} {last_name}".strip(),
+            phone=payload.get("phone") or payload.get("mobile"),
+            email=payload.get("email"),
+            raw=dict(payload),
+        )
+
+    def edit_patient(self, patient_id: str, payload: Mapping[str, Any]) -> PatientRef:
+        if not patient_id:
+            raise NookalValidationError("edit_patient requires patient_id")
+
+        body: dict[str, Any] = {"patient_id": patient_id}
+        for k, v in payload.items():
+            if v is not None and k not in ("patient_id", "patientID", "ID"):
+                body[k] = v
+
+        data = self._request(
+            "POST",
+            "/editPatient",
+            action="edit_patient",
+            target_type="patient_record",
+            target_id=patient_id,
+            is_write=True,
+            json_body=body,
+        )
+        if isinstance(data, Mapping):
+            return self._parse_patient(data)
+        return PatientRef(
+            patient_id=patient_id,
+            raw=dict(payload),
+        )
 
     # --- Cases ---
 
@@ -2051,7 +2156,8 @@ class HttpNookalClient(NookalClient):
                 timeout=self._config.timeout_seconds,
             )
         except Exception as exc:
-            raise NookalError(f"Presigned S3 file PUT failed: {exc}") from exc
+            sanitized_err = _redact_secrets(str(exc), self._config.api_key)
+            raise NookalError(f"Presigned S3 file PUT failed: {sanitized_err}") from None
 
         if not (200 <= put_resp.status_code < 300):
             raise NookalError(f"Presigned S3 file PUT returned HTTP {put_resp.status_code}")
@@ -2093,15 +2199,17 @@ class HttpNookalClient(NookalClient):
 
     def get_invoices(
         self,
-        patient_id: str,
+        patient_id: str | None = None,
         *,
         last_modified: str | None = None,
         void: int | None = None,
         expanded: int | None = None,
     ) -> list[Invoice]:
-        if not patient_id:
-            raise NookalValidationError("patient_id is required for get_invoices")
-        params: dict[str, Any] = {"patient_id": patient_id}
+        if patient_id is not None and not str(patient_id).strip():
+            raise NookalValidationError("patient_id cannot be empty string")
+        params: dict[str, Any] = {}
+        if patient_id:
+            params["patient_id"] = patient_id
         if last_modified:
             params["last_modified"] = last_modified
         if void is not None:
@@ -2114,7 +2222,7 @@ class HttpNookalClient(NookalClient):
             "/getInvoices",
             action="get_invoices",
             target_type="finance",
-            target_id=patient_id,
+            target_id=patient_id or "all",
             params=params,
         )
         rows = _unwrap_collection(data, "invoices")
@@ -3017,6 +3125,67 @@ class MockNookalClient(NookalClient):
         )
         return hits
 
+    def add_patient(self, payload: Mapping[str, Any]) -> PatientRef:
+        assert_allows("nookal.addPatient")
+        first_name = (
+            payload.get("firstName")
+            or payload.get("first_name")
+            or payload.get("FirstName")
+        )
+        last_name = (
+            payload.get("lastName")
+            or payload.get("last_name")
+            or payload.get("LastName")
+        )
+        if not first_name or not last_name:
+            raise NookalValidationError("add_patient requires both first_name and last_name")
+
+        pid = str(payload.get("patient_id") or self._next_id("pat"))
+        patient = PatientRef(
+            patient_id=pid,
+            first_name=str(first_name),
+            last_name=str(last_name),
+            display_name=f"{first_name} {last_name}".strip(),
+            phone=payload.get("phone") or payload.get("mobile"),
+            email=payload.get("email"),
+            raw=dict(payload),
+        )
+        self.patients[pid] = patient
+        return patient
+
+    def edit_patient(self, patient_id: str, payload: Mapping[str, Any]) -> PatientRef:
+        assert_allows("nookal.editPatient")
+        if not patient_id:
+            raise NookalValidationError("edit_patient requires patient_id")
+        existing = self.patients.get(patient_id)
+        if existing is None:
+            patient = PatientRef(
+                patient_id=patient_id,
+                first_name=payload.get("first_name") or payload.get("firstName"),
+                last_name=payload.get("last_name") or payload.get("lastName"),
+                phone=payload.get("phone") or payload.get("mobile"),
+                email=payload.get("email"),
+                raw=dict(payload),
+            )
+            self.patients[patient_id] = patient
+            return patient
+
+        updated = PatientRef(
+            patient_id=existing.patient_id,
+            first_name=payload.get("first_name") or payload.get("firstName") or existing.first_name,
+            last_name=payload.get("last_name") or payload.get("lastName") or existing.last_name,
+            phone=payload.get("phone") or payload.get("mobile") or existing.phone,
+            email=payload.get("email") or existing.email,
+            display_name=payload.get("display_name") or existing.display_name,
+            date_of_birth=existing.date_of_birth,
+            suburb=payload.get("suburb") or existing.suburb,
+            referrer_id=payload.get("referrer_id") or existing.referrer_id,
+            last_appointment_date=existing.last_appointment_date,
+            raw={**existing.raw, **payload},
+        )
+        self.patients[patient_id] = updated
+        return updated
+
     # --- Cases ---
 
     def get_cases(
@@ -3371,6 +3540,7 @@ class MockNookalClient(NookalClient):
             size=len(content),
         )
         self.files[fid] = pfile
+        self.documents.append(DocumentMeta(document_id=fid, patient_id=patient_id, title=name))
         return pfile
 
     def save_document(
@@ -3395,13 +3565,17 @@ class MockNookalClient(NookalClient):
 
     def get_invoices(
         self,
-        patient_id: str,
+        patient_id: str | None = None,
         *,
         last_modified: str | None = None,
         void: int | None = None,
         expanded: int | None = None,
     ) -> list[Invoice]:
-        return [inv for inv in self.invoices.values() if inv.patient_id == patient_id]
+        if patient_id is not None and not str(patient_id).strip():
+            raise NookalValidationError("patient_id cannot be empty string")
+        if patient_id:
+            return [inv for inv in self.invoices.values() if inv.patient_id == patient_id]
+        return list(self.invoices.values())
 
     def get_invoice_entries(
         self,
@@ -3430,6 +3604,66 @@ class MockNookalClient(NookalClient):
 
     def get_invoice_adjustments(self, **params: Any) -> list[Mapping[str, Any]]:
         return []
+
+    def add_invoice(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert_allows("nookal.addInvoice")
+        iid = str(payload.get("invoice_id") or self._next_id("inv"))
+        inv = Invoice(
+            invoice_id=iid,
+            patient_id=str(payload.get("patient_id", "")),
+            date=str(payload.get("date", date.today().isoformat())),
+            total=float(payload.get("total", 0.0)) if payload.get("total") is not None else None,
+            status=str(payload.get("status", "Unpaid")),
+            raw=dict(payload),
+        )
+        self.invoices[iid] = inv
+        return {"status": "success", "invoice_id": iid}
+
+    def delete_invoice(self, invoice_id: str) -> bool:
+        assert_allows("nookal.deleteInvoice")
+        if invoice_id in self.invoices:
+            inv = self.invoices[invoice_id]
+            self.invoices[invoice_id] = Invoice(
+                invoice_id=inv.invoice_id,
+                patient_id=inv.patient_id,
+                date=inv.date,
+                total=inv.total,
+                status="Void",
+                void=True,
+                raw=inv.raw,
+            )
+        return True
+
+    def add_item_to_invoice(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert_allows("nookal.addItemToInvoice")
+        eid = str(payload.get("entry_id") or self._next_id("item"))
+        entry = InvoiceEntry(
+            entry_id=eid,
+            invoice_id=str(payload.get("invoice_id", "")) or None,
+            description=str(payload.get("description", "")),
+            price=float(payload.get("price", 0.0)) if payload.get("price") is not None else None,
+            quantity=float(payload.get("quantity", 1.0)) if payload.get("quantity") is not None else 1.0,
+            raw=dict(payload),
+        )
+        self.invoice_entries.append(entry)
+        return {"status": "success", "entry_id": eid}
+
+    def delete_item_from_invoice(self, item_id: str) -> bool:
+        assert_allows("nookal.deleteItemFromInvoice")
+        self.invoice_entries = [e for e in self.invoice_entries if e.entry_id != item_id]
+        return True
+
+    def add_payment_to_invoice(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert_allows("nookal.addPaymentToInvoice")
+        return {"status": "success", "payment_id": self._next_id("pay")}
+
+    def delete_payment_from_invoice(self, payment_id: str) -> bool:
+        assert_allows("nookal.deletePaymentFromInvoice")
+        return True
+
+    def add_account_credit(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert_allows("nookal.addAccountCredit")
+        return {"status": "success", "credit_id": self._next_id("cred")}
 
 
 def build_client(

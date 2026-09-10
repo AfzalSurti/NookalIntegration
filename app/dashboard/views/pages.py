@@ -18,6 +18,7 @@ from app.dashboard.dependencies import (
     get_container,
     get_correlation_id,
     get_session,
+    invoice_service,
     marketing_service,
     patient_service,
     referrer_service,
@@ -30,6 +31,7 @@ from app.dashboard.services import (
     ApprovalService,
     AppointmentService,
     AuditViewerService,
+    InvoiceService,
     MarketingService,
     PatientService,
     ReferrerConflictService,
@@ -507,6 +509,8 @@ async def finance_invoices_page(
     user: Annotated[User, Depends(require_permission(Permission.DOCUMENT_REVIEW))],
     session: Annotated[Session | None, Depends(get_session)],
     container: Annotated[DashboardContainer, Depends(get_container)],
+    svc: Annotated[InvoiceService, Depends(invoice_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
     patient_id: str | None = None,
     status: str | None = None,
     date_from: str | None = None,
@@ -517,19 +521,20 @@ async def finance_invoices_page(
     clean_from = date_from.strip() if date_from and date_from.strip() else None
     clean_to = date_to.strip() if date_to and date_to.strip() else None
 
-    invoices = []
-    if hasattr(container.nookal, "get_invoices"):
-        try:
-            invoices = container.nookal.get_invoices(
-                patient_id=clean_patient,
-                status=clean_status,
-                date_from=clean_from,
-                date_to=clean_to,
-                page=1,
-                page_length=50,
-            )
-        except Exception:
-            invoices = []
+    try:
+        invoices = svc.list_invoices(
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+            patient_id=clean_patient,
+            status=clean_status,
+            date_from=clean_from,
+            date_to=clean_to,
+            page=1,
+            page_length=50,
+        )
+    except Exception:
+        invoices = []
 
     filters = {
         "patient_id": clean_patient or "",

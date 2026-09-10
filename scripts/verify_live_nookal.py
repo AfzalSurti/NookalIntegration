@@ -49,9 +49,21 @@ def main() -> int:
         ("Practitioners (/getPractitioners)", lambda: client.get_practitioners()),
         ("Appointment Types (/getAppointmentTypes)", lambda: client.get_appointment_types()),
         ("Class Types (/getClassTypes)", lambda: client.get_class_types()),
+        ("Waiting List (/getWaitingList)", lambda: client.get_waiting_list()),
+        ("Class Availabilities (/getClassAvailabilities)", lambda: client.get_class_availabilities(date_from=date.today(), date_to=date.today())),
         ("Patients sample (/getPatients)", lambda: client.get_patients(page_length=5)),
         ("Appointments today (/getAppointments)", lambda: client.list_appointments(date_from=date.today(), page_length=5)),
+        ("Appointment Availabilities (/getAppointmentAvailabilities)", lambda: client.get_appointment_availabilities(date_from=date.today(), date_to=date.today())),
         ("Cases sample (/getAllCases)", lambda: client.get_all_cases(page_length=5)),
+        ("Treatment Notes sample (/getAllTreatmentNotes)", lambda: client.get_all_treatment_notes(page_length=5)),
+        ("Patient Extras (/getExtras)", lambda: client.get_extras()),
+        ("Invoices sample (/getInvoices)", lambda: client.get_invoices()),
+        ("Invoice Entries (/getInvoiceEntries)", lambda: client.get_invoice_entries()),
+        ("Invoice Credits (/getInvoiceCredits)", lambda: client.get_invoice_credits()),
+        ("Invoice Discounts (/getInvoiceDiscounts)", lambda: client.get_invoice_discounts()),
+        ("Invoice Payments (/getInvoicePayments)", lambda: client.get_invoice_payments()),
+        ("Invoice Refunds (/getInvoiceRefunds)", lambda: client.get_invoice_refunds()),
+        ("Invoice Adjustments (/getInvoiceAdjustments)", lambda: client.get_invoice_adjustments()),
     ]
 
     successes = 0

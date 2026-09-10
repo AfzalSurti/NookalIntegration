@@ -577,3 +577,118 @@ def test_validation_and_kill_switch_on_new_endpoints(tmp_path: Path, monkeypatch
     with pytest.raises(KillSwitchActive):
         nookal.delete_invoice("inv_1")
 
+    with pytest.raises(KillSwitchActive):
+        nookal.add_patient({"first_name": "John", "last_name": "Smith"})
+
+    with pytest.raises(KillSwitchActive):
+        nookal.edit_patient("p_1", {"first_name": "Johnny"})
+
+
+def test_patient_add_and_edit_http_and_mock() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if "addPatient" in str(request.url):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {
+                        "ID": "pat_99",
+                        "firstName": "Jane",
+                        "lastName": "Doe",
+                        "email": "jane@example.com",
+                    },
+                },
+            )
+        if "editPatient" in str(request.url):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {
+                        "ID": "pat_99",
+                        "firstName": "Jane",
+                        "lastName": "Smith",
+                        "email": "jane.smith@example.com",
+                    },
+                },
+            )
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), base_url=BASE_URL)
+    http_nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    # Validation: missing names
+    with pytest.raises(NookalValidationError):
+        http_nookal.add_patient({"first_name": "Jane"})
+
+    with pytest.raises(NookalValidationError):
+        http_nookal.edit_patient("", {"last_name": "Smith"})
+
+    # HTTP add_patient
+    added = http_nookal.add_patient({"firstName": "Jane", "lastName": "Doe", "email": "jane@example.com"})
+    assert added.patient_id == "pat_99"
+    assert added.first_name == "Jane"
+    assert len(captured) == 1
+    assert "addPatient" in str(captured[0].url)
+
+    # HTTP edit_patient
+    edited = http_nookal.edit_patient("pat_99", {"lastName": "Smith", "email": "jane.smith@example.com"})
+    assert edited.patient_id == "pat_99"
+    assert edited.last_name == "Smith"
+    assert len(captured) == 2
+    assert "editPatient" in str(captured[1].url)
+
+    # MockNookalClient add and edit
+    from app.nookal_client import MockNookalClient
+    mock_client = MockNookalClient()
+    m_added = mock_client.add_patient({"first_name": "Bob", "last_name": "Brown", "phone": "0400111222"})
+    assert m_added.patient_id in mock_client.patients
+    assert m_added.display_name == "Bob Brown"
+
+    m_edited = mock_client.edit_patient(m_added.patient_id, {"last_name": "Jones"})
+    assert m_edited.last_name == "Jones"
+    assert mock_client.patients[m_added.patient_id].last_name == "Jones"
+
+
+def test_mock_nookal_financial_writes() -> None:
+    from app.nookal_client import MockNookalClient
+    mock = MockNookalClient()
+
+    # Invoices query with patient_id=None
+    all_invs = mock.get_invoices()
+    assert all_invs == []
+
+    # Add invoice
+    inv_res = mock.add_invoice({"patient_id": "pat_1", "total": 120.0, "status": "Unpaid"})
+    inv_id = inv_res["invoice_id"]
+    assert inv_id in mock.invoices
+    assert len(mock.get_invoices()) == 1
+    assert len(mock.get_invoices(patient_id="pat_1")) == 1
+
+    # Add item
+    item_res = mock.add_item_to_invoice({"invoice_id": inv_id, "description": "Consultation", "price": 120.0})
+    item_id = item_res["entry_id"]
+    entries = mock.get_invoice_entries(invoice_id=inv_id)
+    assert len(entries) == 1
+    assert entries[0].entry_id == item_id
+
+    # Payments & Credits
+    pay_res = mock.add_payment_to_invoice({"invoice_id": inv_id, "amount": 120.0})
+    assert "payment_id" in pay_res
+    cred_res = mock.add_account_credit({"patient_id": "pat_1", "amount": 50.0})
+    assert "credit_id" in cred_res
+
+    # Delete item & invoice
+    assert mock.delete_item_from_invoice(item_id) is True
+    assert len(mock.get_invoice_entries(invoice_id=inv_id)) == 0
+    assert mock.delete_invoice(inv_id) is True
+    assert mock.invoices[inv_id].void is True
+
+
+def test_unsupported_by_documented_nookal_api_constant() -> None:
+    from app.nookal_client import UNSUPPORTED_BY_DOCUMENTED_NOOKAL_API
+    assert UNSUPPORTED_BY_DOCUMENTED_NOOKAL_API == "UNSUPPORTED_BY_DOCUMENTED_NOOKAL_API"
+

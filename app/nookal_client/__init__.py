@@ -21,6 +21,7 @@ from app.nookal_client.client import (
     Referral,
     Referrer,
     TreatmentNote,
+    UNSUPPORTED_BY_DOCUMENTED_NOOKAL_API,
     WaitingListEntry,
     build_client,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "Referral",
     "Referrer",
     "TreatmentNote",
+    "UNSUPPORTED_BY_DOCUMENTED_NOOKAL_API",
     "WaitingListEntry",
     "build_client",
 ]

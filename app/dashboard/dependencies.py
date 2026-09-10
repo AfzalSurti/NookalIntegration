@@ -12,6 +12,7 @@ from app.dashboard.services import (
     ApprovalService,
     AppointmentService,
     AuditViewerService,
+    InvoiceService,
     MarketingService,
     PatientService,
     ReferrerConflictService,
@@ -174,6 +175,14 @@ def marketing_service(container: Annotated[DashboardContainer, Depends(get_conta
         suppression_store=container.suppression_store,
         email_adapter=container.email_adapter,
         audit=container.audit,
+    )
+
+
+def invoice_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> InvoiceService:
+    return InvoiceService(
+        nookal=container.nookal,
+        audit=container.audit,
+        clock=container.clock,
     )
 
 

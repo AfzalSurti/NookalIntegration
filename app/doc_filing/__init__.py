@@ -88,12 +88,22 @@ class DocumentFiler:
         try:
             if to_nookal:
                 self._check_kill_switch("doc_filing.nookal")
-                self._nookal.save_document(
-                    document.patient_match.patient_id,
-                    title=document.original_filename,
-                    content=content,
-                    content_type=document.mime_type,
-                )
+                if hasattr(self._nookal, "upload_patient_document"):
+                    ext = Path(document.original_filename).suffix.lstrip(".") or "pdf"
+                    self._nookal.upload_patient_document(
+                        patient_id=document.patient_match.patient_id,
+                        name=Path(document.original_filename).stem,
+                        extension=ext,
+                        file_type=document.mime_type,
+                        content=content,
+                    )
+                else:
+                    self._nookal.save_document(
+                        document.patient_match.patient_id,
+                        title=document.original_filename,
+                        content=content,
+                        content_type=document.mime_type,
+                    )
                 completed.append("nookal")
                 self._audit(
                     "doc_filing", "file_document", "document", document.document_id, "success",
