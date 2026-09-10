@@ -1608,7 +1608,10 @@ class HttpNookalClient(NookalClient):
         return [self._parse_appointment(row) for row in rows if isinstance(row, Mapping)]
 
     def get_appointment(self, appointment_id: str) -> Appointment:
-        params: dict[str, Any] = {"page_length": 200}
+        params: dict[str, Any] = {
+            "page_length": 200,
+            "appointment_id": appointment_id,
+        }
         data = self._request(
             "GET",
             "/getAppointments",
