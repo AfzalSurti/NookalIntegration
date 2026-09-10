@@ -236,10 +236,6 @@ class PatientService:
                 "correlation_id": correlation_id,
                 "role": role,
                 "appointment_count": len(appt_out),
-                "case_count": len(cases_out),
-                "notes_count": len(notes_out),
-                "file_count": len(files_out),
-                "invoice_count": len(invoices_out),
             },
         )
 

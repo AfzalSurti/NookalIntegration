@@ -1150,3 +1150,36 @@ def test_patient_id_variants_in_search_and_get() -> None:
     assert patient.patient_id == "9001"
     assert patient.display_name == "Alice Wonder"
 
+
+def test_list_appointments_status_parameter() -> None:
+    """
+    Ensure HttpNookalClient.list_appointments accepts status parameter and maps to appt_status.
+    """
+    captured_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "api_call": "getAppointments",
+                    "results": {
+                        "appointments": []
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    # Calling with status keyword argument must succeed and populate appt_status
+    appts = nookal.list_appointments(status="booked")
+    assert appts == []
+    assert len(captured_requests) == 1
+    assert captured_requests[0].url.params["appt_status"] == "booked"
+
+

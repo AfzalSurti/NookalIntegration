@@ -311,3 +311,69 @@ def test_unavailable_email_adapter_raises_in_production() -> None:
     with pytest.raises(NotImplementedError) as exc_info:
         adapter.send(to="test@example.com", body="newsletter")
     assert "production email provider is not configured" in str(exc_info.value)
+
+
+def test_production_appointment_service_with_http_nookal_client(tmp_path: Path) -> None:
+    """
+    Ensure AppointmentService.list_upcoming works with HttpNookalClient without TypeError.
+    """
+    import httpx
+    from app.dashboard.services.appointments import AppointmentService
+    from app.shared.clock import SystemClock
+    from app.orchestration.pending_actions import PendingActionStore
+    from app.shared.audit import AuditLog
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "getAppointments" in str(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "api_call": "getAppointments",
+                    "results": {
+                        "appointments": [
+                            {
+                                "ID": "appt_prod_1",
+                                "patientID": "pat_1",
+                                "date": "2026-09-10",
+                                "startTime": "10:00:00",
+                                "endTime": "10:30:00",
+                                "status": "booked",
+                            }
+                        ]
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url="https://api.nookal.com/production/v2/")
+    config = NookalConfig(
+        base_url="https://api.nookal.com/production/v2/",
+        api_key="prod-key-123",
+        requests_per_second=2.0,
+        max_retries=3,
+        timeout_seconds=10.0,
+    )
+    nookal = HttpNookalClient(config=config, client=client)
+    audit = AuditLog(directory=tmp_path / "audit").log_event
+
+    svc = AppointmentService(
+        nookal=nookal,
+        messaging=None,  # type: ignore[arg-type]
+        approval=None,   # type: ignore[arg-type]
+        audit=audit,
+        pending_actions=PendingActionStore(),
+        clock=SystemClock(),
+    )
+
+    upcoming = svc.list_upcoming(
+        actor="u_admin",
+        role="admin",
+        correlation_id="corr-overview-test",
+    )
+    assert len(upcoming) == 1
+    assert upcoming[0].appointment_id == "appt_prod_1"
+    assert upcoming[0].patient_id == "pat_1"
+

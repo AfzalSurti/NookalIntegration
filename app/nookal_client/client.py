@@ -497,6 +497,7 @@ class NookalClient(ABC):
         location_id: str | None = None,
         practitioner_id: str | None = None,
         appt_status: str | None = None,
+        status: str | None = None,
         time_from: str | None = None,
         time_to: str | None = None,
         service_id: str | None = None,
@@ -1342,6 +1343,7 @@ class HttpNookalClient(NookalClient):
         location_id: str | None = None,
         practitioner_id: str | None = None,
         appt_status: str | None = None,
+        status: str | None = None,
         time_from: str | None = None,
         time_to: str | None = None,
         service_id: str | None = None,
@@ -1370,8 +1372,9 @@ class HttpNookalClient(NookalClient):
             params["location_id"] = location_id
         if practitioner_id:
             params["practitioner_id"] = practitioner_id
-        if appt_status:
-            params["appt_status"] = appt_status
+        effective_status = status or appt_status
+        if effective_status:
+            params["appt_status"] = effective_status
         if time_from:
             params["time_from"] = time_from
         if time_to:
@@ -2904,6 +2907,7 @@ class MockNookalClient(NookalClient):
         return list(self.referrers.values())
 
     def upsert_referrer(self, payload: Mapping[str, Any]) -> Referrer:
+        assert_allows("nookal.upsert_referrer")
         rid = str(payload.get("referrer_id") or self._next_id("ref"))
         ref = Referrer(referrer_id=rid, name=str(payload["name"]), provider_number=payload.get("provider_number"), raw=dict(payload))
         self.referrers[rid] = ref
@@ -3069,6 +3073,7 @@ class MockNookalClient(NookalClient):
         notes: str,
         appt_id: str | None = None,
     ) -> TreatmentNote:
+        assert_allows("nookal.addTreatmentNote")
         note_id = self._next_id("note")
         note = TreatmentNote(
             note_id=note_id,
@@ -3094,6 +3099,7 @@ class MockNookalClient(NookalClient):
         extra_id: str,
         value: str,
     ) -> bool:
+        assert_allows("nookal.addPatientExtra")
         return True
 
     # --- Appointments ---
@@ -3108,6 +3114,7 @@ class MockNookalClient(NookalClient):
         location_id: str | None = None,
         practitioner_id: str | None = None,
         appt_status: str | None = None,
+        status: str | None = None,
         time_from: str | None = None,
         time_to: str | None = None,
         service_id: str | None = None,
@@ -3129,8 +3136,9 @@ class MockNookalClient(NookalClient):
             results = [a for a in results if a.location_id == location_id]
         if practitioner_id:
             results = [a for a in results if a.practitioner_id == practitioner_id]
-        if appt_status:
-            results = [a for a in results if (a.status or "").lower() == appt_status.lower()]
+        effective_status = status or appt_status
+        if effective_status:
+            results = [a for a in results if (a.status or "").lower() == effective_status.lower()]
         return results[:page_length]
 
     def get_appointment(self, appointment_id: str) -> Appointment:
@@ -3141,6 +3149,7 @@ class MockNookalClient(NookalClient):
         return self.appointments[appointment_id]
 
     def create_appointment(self, payload: Mapping[str, Any]) -> Appointment:
+        assert_allows("nookal.addAppointmentBooking")
         aid = str(payload.get("appointment_id") or self._next_id("appt"))
         starts = payload.get("starts_at")
         if isinstance(starts, str):
@@ -3170,6 +3179,7 @@ class MockNookalClient(NookalClient):
         status: str | None = None,
         **fields: Any,
     ) -> Appointment:
+        assert_allows("nookal.updateAppointmentBooking")
         existing = self.get_appointment(appointment_id)
         updated = Appointment(
             appointment_id=existing.appointment_id,
@@ -3190,6 +3200,7 @@ class MockNookalClient(NookalClient):
         *,
         patient_id: str,
     ) -> Appointment:
+        assert_allows("nookal.cancelAppointment")
         existing = self.get_appointment(appointment_id)
         updated = Appointment(
             appointment_id=existing.appointment_id,
@@ -3216,6 +3227,7 @@ class MockNookalClient(NookalClient):
         appointment_date: str | date,
         cancel_first: bool = False,
     ) -> Appointment:
+        assert_allows("nookal.rebookAppointment")
         if cancel_first:
             self.cancel_appointment(appointment_id, patient_id=patient_id)
         new_id = self._next_id("rebook")
