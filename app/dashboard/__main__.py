@@ -64,7 +64,28 @@ def build_offline_container() -> DashboardContainer:
         ),
     )
 
-    users: list[tuple[User, str]] = []
+    users_file = os.environ.get("DASHBOARD_USERS_FILE", "").strip()
+    if users_file and Path(users_file).exists():
+        import json
+        try:
+            raw_users = json.loads(Path(users_file).read_text(encoding="utf-8"))
+            for item in raw_users:
+                pwd = item.get("password", "")
+                if pwd:
+                    users.append(
+                        (
+                            User(
+                                user_id=item["user_id"],
+                                username=item["username"],
+                                role=item.get("role", "admin"),
+                                display_name=item.get("display_name", item["username"]),
+                            ),
+                            pwd,
+                        )
+                    )
+        except Exception as exc:
+            print(f"[dashboard] Warning: Failed to parse DASHBOARD_USERS_FILE {users_file}: {exc}")
+
     username = os.environ.get("DASHBOARD_DEV_USER", "").strip()
     password = os.environ.get("DASHBOARD_DEV_PASSWORD", "").strip()
     role = os.environ.get("DASHBOARD_DEV_ROLE", "admin").strip() or "admin"
@@ -75,20 +96,32 @@ def build_offline_container() -> DashboardContainer:
                 password,
             )
         )
-    elif os.environ.get("AUTOMATION_ALLOW_DEV_LOGIN") == "1":
-        # Ephemeral local-only credentials â€” printed once; never committed.
+    elif not users and os.environ.get("AUTOMATION_ALLOW_DEV_LOGIN") == "1":
+        # Ephemeral local-only credentials — printed once; never committed.
         generated = secrets.token_urlsafe(12)
         print(f"[dashboard] ephemeral admin password: {generated}")
-        users.append(
-            (
-                User(user_id="dev_admin", username="admin", role="admin", display_name="Dev Admin"),
-                generated,
+        print("[dashboard] Local dev accounts initialized with this password:")
+        print("  • admin        (role: admin)")
+        print("  • practitioner (role: practitioner)")
+        print("  • staff        (role: staff)")
+        print("  • owner        (role: owner)")
+        for dev_role in ("admin", "practitioner", "staff", "owner"):
+            users.append(
+                (
+                    User(
+                        user_id=f"dev_{dev_role}",
+                        username=dev_role,
+                        role=dev_role,
+                        display_name=f"Dev {dev_role.capitalize()}",
+                    ),
+                    generated,
+                )
             )
-        )
-    else:
+    elif not users:
         raise SystemExit(
             "Set DASHBOARD_DEV_USER and DASHBOARD_DEV_PASSWORD, "
-            "or AUTOMATION_ALLOW_DEV_LOGIN=1 for an ephemeral local password."
+            "or DASHBOARD_USERS_FILE, "
+            "or AUTOMATION_ALLOW_DEV_LOGIN=1 for ephemeral local passwords."
         )
 
     return DashboardContainer(
