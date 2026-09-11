@@ -1183,3 +1183,221 @@ def test_list_appointments_status_parameter() -> None:
     assert captured_requests[0].url.params["appt_status"] == "booked"
 
 
+def test_search_patients_fuzzy_search_maps_names() -> None:
+    """
+    Verifies that search_patients with fuzzy_search='Saurabh Patel' maps to first_name
+    and last_name in query parameters so Nookal's search variable requirement is satisfied.
+    """
+    captured_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        assert "searchPatients" in str(request.url.path)
+        assert request.url.params["first_name"] == "Saurabh"
+        assert request.url.params["last_name"] == "Patel"
+        assert request.url.params["fuzzy_search"] == "Saurabh Patel"
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": [
+                    {
+                        "ID": "sp_1",
+                        "FirstName": "Saurabh",
+                        "LastName": "Patel",
+                        "Mobile": "+61412000111",
+                        "Email": "saurabh@example.com",
+                    }
+                ],
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    results = nookal.search_patients(fuzzy_search="Saurabh Patel")
+    assert len(results) == 1
+    assert results[0].patient_id == "sp_1"
+    assert results[0].display_name == "Saurabh Patel"
+
+
+def test_search_patients_falls_back_on_missing_search_variables_error() -> None:
+    """
+    Verifies that when /searchPatients rejects with 'Search variables are missing.',
+    HttpNookalClient catches NookalError and falls back to /getPatients, filtering by
+    fuzzy_search in memory without raising a 500 error.
+    """
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        url_str = str(request.url)
+        if "searchPatients" in url_str:
+            return httpx.Response(
+                200,
+                json={"status": "failure", "details": "Search variables are missing."},
+            )
+        if "getPatients" in url_str:
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": [
+                        {
+                            "ID": "sp_1",
+                            "FirstName": "Saurabh",
+                            "LastName": "Patel",
+                            "Mobile": "+61412000111",
+                            "Email": "saurabh@example.com",
+                        },
+                        {
+                            "ID": "other_2",
+                            "FirstName": "John",
+                            "LastName": "Doe",
+                            "Mobile": "+61499999999",
+                        },
+                    ],
+                },
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    results = nookal.search_patients(fuzzy_search="Saurabh Patel")
+    assert len(results) == 1
+    assert results[0].patient_id == "sp_1"
+    assert results[0].display_name == "Saurabh Patel"
+    # Both endpoints were called (search failed, then getPatients succeeded)
+    assert call_count == 2
+
+
+def test_get_invoice_unwraps_official_nookal_v2_envelope() -> None:
+    captured_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        url_str = str(request.url)
+        if "getInvoice" in url_str:
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {
+                        "api_call": "getInvoice",
+                        "results": {
+                            "invoice": {
+                                "ID": "inv_999",
+                                "reference": "INV-999-AU",
+                                "patientID": "pat_42",
+                                "date": "2026-09-01",
+                                "dueDate": "2026-09-15",
+                                "locationID": "loc_1",
+                                "practitionerID": "prac_2",
+                                "caseID": "case_10",
+                                "totalDebits": "180.00",
+                                "totalPayments": "180.00",
+                                "totalBalance": "0.00",
+                                "status": "Paid",
+                                "notes": "Post-op physiotherapy session",
+                                "patient": {"ID": "pat_42", "first_name": "Alice", "last_name": "Cooper"},
+                                "location": {"ID": "loc_1", "name": "BTE Sydney"},
+                                "practitioner": {"ID": "prac_2", "first_name": "Dr.", "last_name": "Strange"},
+                                "entries": [
+                                    {
+                                        "ID": "ent_1",
+                                        "description": "Initial Physiotherapy Assessment",
+                                        "price": 180.00,
+                                        "quantity": 1,
+                                        "tax": 0.0,
+                                        "total": 180.00,
+                                    }
+                                ],
+                            }
+                        },
+                    },
+                },
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    inv = nookal.get_invoice("inv_999")
+    assert inv.invoice_id == "inv_999"
+    assert inv.patient_id == "pat_42"
+    assert inv.reference == "INV-999-AU"
+    assert inv.date == "2026-09-01"
+    assert inv.due_date == "2026-09-15"
+    assert inv.location_id == "loc_1"
+    assert inv.practitioner_id == "prac_2"
+    assert inv.case_id == "case_10"
+    assert inv.total == 180.00
+    assert inv.paid == 180.00
+    assert inv.balance == 0.00
+    assert inv.status == "Paid"
+    assert inv.notes == "Post-op physiotherapy session"
+    assert inv.raw.get("patient_name") == "Alice Cooper"
+    assert inv.raw.get("location_name") == "BTE Sydney"
+    assert inv.raw.get("practitioner_name") == "Dr. Strange"
+    assert len(inv.entries) == 1
+    assert inv.entries[0].description == "Initial Physiotherapy Assessment"
+
+
+def test_get_invoice_fallback_to_get_invoices_when_404() -> None:
+    call_history: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        call_history.append(url_str)
+        if "getInvoice" in url_str and "getInvoices" not in url_str:
+            return httpx.Response(404, json={"status": "failure", "details": "404 Not Found"})
+        if "getInvoices" in url_str:
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {
+                        "api_call": "getInvoices",
+                        "results": {
+                            "invoices": [
+                                {
+                                    "ID": "inv_fallback_77",
+                                    "patientID": "pat_50",
+                                    "reference": "REF-FB-77",
+                                    "date": "2026-09-03",
+                                    "dueDate": "2026-09-17",
+                                    "totalDebits": "95.00",
+                                    "status": "Paid",
+                                    "locationID": "loc_3",
+                                    "practitionerID": "prac_4",
+                                }
+                            ]
+                        },
+                    },
+                },
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url=BASE_URL)
+    nookal = HttpNookalClient(config=_make_config(), client=client)
+
+    inv = nookal.get_invoice("inv_fallback_77")
+    assert inv.invoice_id == "inv_fallback_77"
+    assert inv.patient_id == "pat_50"
+    assert inv.reference == "REF-FB-77"
+    assert inv.status == "Paid"
+    assert inv.total == 95.00
+    assert inv.balance == 0.00
+    assert inv.paid == 95.00
+    assert any("getInvoice" in c for c in call_history)
+    assert any("getInvoices" in c for c in call_history)
+
+
+
+

@@ -528,6 +528,152 @@ def test_invoice_detail_page_displays_all_fields_and_calculated_totals(client: T
     assert resp_fin.status_code == 200
     assert "$209.00" in resp_fin.text
     assert "Sarah Connor" in resp_fin.text
+    # Verify unpaid invoice displays $0.00 amount paid and $209.00 balance due
+    assert "$0.00" in resp_fin.text
+    assert "Unpaid" in resp_fin.text
+
+
+def test_paid_invoice_detail_shows_zero_balance_and_full_amount_paid(client: TestClient, env) -> None:
+    """If an invoice is paid, Balance Due must be $0.00 and Amount Paid must be total amount paid."""
+    env.nookal.invoices["inv_paid_99"] = Invoice(
+        invoice_id="inv_paid_99",
+        patient_id="pat_1001",
+        date="2026-09-05",
+        total=250.00,
+        status="Paid",
+        void=False,
+        reference="INV-PAID-99",
+        balance=0.00,
+        paid=250.00,
+        entries=[
+            InvoiceEntry(
+                entry_id="e_p1",
+                item_id="PHYSIO_EXT",
+                invoice_id="inv_paid_99",
+                description="Extended Physiotherapy Session",
+                price=250.00,
+                quantity=1.0,
+                tax=0.00,
+                total=250.00,
+            ),
+        ],
+    )
+
+    resp = env.authed(client, "GET", "/patients/pat_1001/invoices/inv_paid_99", role="practitioner")
+    assert resp.status_code == 200
+    html = resp.text
+
+    # Verify Paid badge
+    assert "Paid" in html
+    # Amount Paid must equal total ($250.00)
+    assert "$250.00" in html
+    # Balance Due MUST be $0.00
+    assert "$0.00" in html
+
+
+def test_invoices_page_and_patient_detail_display_paid_unpaid_statuses(client: TestClient, env) -> None:
+    """Verify that Invoices page and Patient Detail invoice table display Paid and Unpaid accurately."""
+    # Seed a paid invoice and an unpaid invoice for pat_1001
+    env.nookal.invoices["inv_p1"] = Invoice(
+        invoice_id="inv_p1",
+        patient_id="pat_1001",
+        date="2026-09-02",
+        total=120.00,
+        status="Paid",
+        balance=0.00,
+        paid=120.00,
+    )
+    env.nookal.invoices["inv_u1"] = Invoice(
+        invoice_id="inv_u1",
+        patient_id="pat_1001",
+        date="2026-09-04",
+        total=85.00,
+        status="Unpaid",
+        balance=85.00,
+        paid=0.00,
+    )
+
+    # 1. Invoices page shows both statuses accurately
+    resp_inv = env.authed(client, "GET", "/finance/invoices", role="practitioner")
+    assert resp_inv.status_code == 200
+    assert "inv_p1" in resp_inv.text
+    assert "inv_u1" in resp_inv.text
+    assert "badge-success" in resp_inv.text  # Paid badge
+    assert "badge-warning" in resp_inv.text  # Unpaid badge
+
+    # 2. Filter by status=Paid
+    resp_filtered = env.authed(client, "GET", "/finance/invoices?status=Paid", role="practitioner")
+    assert resp_filtered.status_code == 200
+    assert "inv_p1" in resp_filtered.text
+    assert "inv_u1" not in resp_filtered.text
+
+    # 3. Patient Detail page shows both invoices with correct badges
+    resp_pat = env.authed(client, "GET", "/patients/pat_1001", role="practitioner")
+    assert resp_pat.status_code == 200
+    assert "inv_p1" in resp_pat.text
+    assert "inv_u1" in resp_pat.text
+    assert "Paid" in resp_pat.text
+    assert "Unpaid" in resp_pat.text
+
+
+def test_nookal_invoice_parsing_unpaid_and_paid_heuristics() -> None:
+    """Verify HttpNookalClient._parse_invoice correctly identifies Paid/Unpaid from diverse Nookal payloads."""
+    # Explicit 'Paid'
+    inv1 = HttpNookalClient._parse_invoice({
+        "ID": "1",
+        "patientID": "10",
+        "total": "150.00",
+        "status": "paid",
+    })
+    assert inv1.status == "Paid"
+    assert inv1.balance == 0.0
+    assert inv1.paid == 150.0
+
+    # Explicit 'Unpaid'
+    inv2 = HttpNookalClient._parse_invoice({
+        "ID": "2",
+        "patientID": "10",
+        "total": "150.00",
+        "status": "unpaid",
+    })
+    assert inv2.status == "Unpaid"
+    assert inv2.balance == 150.0
+    assert inv2.paid == 0.0
+
+    # Heuristic: totalBalance is 0.00 with debits
+    inv3 = HttpNookalClient._parse_invoice({
+        "ID": "3",
+        "patientID": "10",
+        "totalDebits": "200.00",
+        "totalBalance": "0.00",
+        "totalPayments": "200.00",
+    })
+    assert inv3.status == "Paid"
+    assert inv3.balance == 0.0
+    assert inv3.paid == 200.0
+
+    # Heuristic: totalBalance > 0 with 0 payments
+    inv4 = HttpNookalClient._parse_invoice({
+        "ID": "4",
+        "patientID": "10",
+        "totalDebits": "300.00",
+        "totalBalance": "300.00",
+        "totalPayments": "0.00",
+    })
+    assert inv4.status == "Unpaid"
+    assert inv4.balance == 300.0
+    assert inv4.paid == 0.0
+
+    # Boolean isPaid = True
+    inv5 = HttpNookalClient._parse_invoice({
+        "ID": "5",
+        "patientID": "10",
+        "amount": "95.00",
+        "isPaid": True,
+    })
+    assert inv5.status == "Paid"
+    assert inv5.balance == 0.0
+    assert inv5.paid == 95.0
 
 
 def test_appointment_detail_page_displays_all_nookal_data(client: TestClient, env) -> None:
@@ -670,4 +816,99 @@ def test_patient_detail_page_displays_all_nookal_demographics_and_invoices(clien
 
     # Verify Raw Nookal Patient Data inspector is present
     assert "Show Raw Nookal Patient Data" in html
+
+
+def test_invoice_information_card_displays_all_nookal_data(client: TestClient, env) -> None:
+    # Seed location & practitioner
+    env.nookal.locations["loc_bte"] = Location(
+        location_id="loc_bte",
+        name="Back to Ease Bond Street",
+    )
+    env.nookal.practitioners["prac_bte"] = Practitioner(
+        practitioner_id="prac_bte",
+        first_name="Marcus",
+        last_name="Welby",
+    )
+    env.nookal.patients["pat_bte"] = PatientRef(
+        patient_id="pat_bte",
+        first_name="Eleanor",
+        last_name="Rigby",
+        display_name="Eleanor Rigby",
+    )
+
+    # Seed comprehensive invoice
+    env.nookal.invoices["inv_info_101"] = Invoice(
+        invoice_id="inv_info_101",
+        patient_id="pat_bte",
+        reference="REF-BTE-2026",
+        date="2026-09-02",
+        due_date="2026-09-16",
+        location_id="loc_bte",
+        practitioner_id="prac_bte",
+        case_id="case_bte_77",
+        total=220.00,
+        paid=220.00,
+        balance=0.00,
+        status="Paid",
+        notes="Post-treatment mobilization notes and advice",
+        entries=[
+            InvoiceEntry(
+                entry_id="ent_bte_1",
+                invoice_id="inv_info_101",
+                item_id="CON-60",
+                description="Comprehensive 60min Consultation",
+                price=220.00,
+                quantity=1.0,
+                tax=0.0,
+                total=220.00,
+            )
+        ],
+        raw={
+            "patient_name": "Eleanor Rigby",
+            "location_name": "Back to Ease Bond Street",
+            "practitioner_name": "Marcus Welby",
+        },
+    )
+
+    # 1. Test Finance direct route: /finance/invoices/inv_info_101
+    resp1 = env.authed(client, "GET", "/finance/invoices/inv_info_101", role="admin")
+    assert resp1.status_code == 200
+    html1 = resp1.text
+
+    assert "Invoice Information" in html1
+    assert "inv_info_101" in html1
+    assert "REF-BTE-2026" in html1
+    assert "Eleanor Rigby" in html1
+    assert "pat_bte" in html1
+    assert "2026-09-02" in html1
+    assert "2026-09-16" in html1
+    assert "Back to Ease Bond Street" in html1
+    assert "loc_bte" in html1
+    assert "Marcus Welby" in html1
+    assert "prac_bte" in html1
+    assert "case_bte_77" in html1
+    assert "Paid" in html1
+    assert "$220.00" in html1
+    assert "$0.00" in html1
+    assert "Comprehensive 60min Consultation" in html1
+    assert "Post-treatment mobilization notes and advice" in html1
+
+    # 2. Test Patient invoice route: /patients/pat_bte/invoices/inv_info_101
+    resp2 = env.authed(client, "GET", "/patients/pat_bte/invoices/inv_info_101", role="practitioner")
+    assert resp2.status_code == 200
+    html2 = resp2.text
+
+    assert "Invoice Information" in html2
+    assert "inv_info_101" in html2
+    assert "REF-BTE-2026" in html2
+    assert "Eleanor Rigby" in html2
+    assert "pat_bte" in html2
+    assert "2026-09-02" in html2
+    assert "2026-09-16" in html2
+    assert "Back to Ease Bond Street" in html2
+    assert "Marcus Welby" in html2
+    assert "case_bte_77" in html2
+    assert "$220.00" in html2
+    assert "$0.00" in html2
+
 

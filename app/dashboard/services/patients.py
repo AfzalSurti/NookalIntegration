@@ -79,16 +79,20 @@ class PatientService:
     ) -> PatientSearchResponse:
         page = max(1, page)
         page_size = min(max(1, page_size), 100)
-        results = self._nookal.search_patients(
-            fuzzy_search=query,
-            deceased=deceased,
-            suburb=suburb,
-            age_min=age_min,
-            age_max=age_max,
-            appointment_from=appointment_from,
-            appointment_to=appointment_to,
-            referrer_id=referrer_id,
-        )
+        try:
+            results = self._nookal.search_patients(
+                fuzzy_search=query,
+                deceased=deceased,
+                suburb=suburb,
+                age_min=age_min,
+                age_max=age_max,
+                appointment_from=appointment_from,
+                appointment_to=appointment_to,
+                referrer_id=referrer_id,
+            )
+        except Exception as exc:
+            logger.error("Patient search failed: %s", exc)
+            results = []
         today = self._clock.now().date()
         total = len(results)
         start = (page - 1) * page_size
@@ -256,12 +260,25 @@ class PatientService:
                                 if entry_sum > 0:
                                     calc_total = float(entry_sum)
 
+                            final_status = full_inv.status if (full_inv.status and full_inv.status != "—") else inv.status
+                            eff_bal = full_inv.balance if full_inv.balance is not None else inv.balance
+                            eff_paid = full_inv.paid if full_inv.paid is not None else inv.paid
+                            if (final_status or "").strip().lower() in ("paid", "completed", "settled"):
+                                eff_bal = 0.0
+                                if calc_total is not None and calc_total > 0:
+                                    eff_paid = calc_total
+                            elif (final_status or "").strip().lower() in ("unpaid", "pending", "outstanding", "due", "draft"):
+                                if (eff_bal is None or eff_bal == 0.0) and calc_total is not None:
+                                    eff_bal = calc_total
+                                if eff_paid is None:
+                                    eff_paid = 0.0
+
                             invoices[idx] = Invoice(
                                 invoice_id=inv.invoice_id,
                                 patient_id=inv.patient_id or full_inv.patient_id,
                                 date=full_inv.date or inv.date,
                                 total=calc_total,
-                                status=full_inv.status if (full_inv.status and full_inv.status != "—") else inv.status,
+                                status=final_status,
                                 void=full_inv.void if full_inv.void is not None else inv.void,
                                 expanded=bool(entries) or full_inv.expanded or inv.expanded,
                                 entries=entries,
@@ -270,8 +287,8 @@ class PatientService:
                                 case_id=full_inv.case_id or inv.case_id,
                                 reference=full_inv.reference or inv.reference,
                                 due_date=full_inv.due_date or inv.due_date,
-                                balance=full_inv.balance if full_inv.balance is not None else inv.balance,
-                                paid=full_inv.paid if full_inv.paid is not None else inv.paid,
+                                balance=eff_bal,
+                                paid=eff_paid,
                                 tax=full_inv.tax if full_inv.tax is not None else inv.tax,
                                 notes=full_inv.notes or inv.notes,
                                 raw={**inv.raw, **full_inv.raw},

@@ -13,14 +13,15 @@
     {% if invoice.reference %}
       <span class="badge badge-neutral">Ref: {{ invoice.reference }}</span>
     {% endif %}
-    {% if invoice.void %}
+    {% set s = (invoice.status or "")|lower|trim %}
+    {% if invoice.void or s in ["void", "voided", "cancelled"] %}
       <span class="badge badge-error">Voided</span>
-    {% elif invoice.status == "Paid" or invoice.status == "paid" %}
+    {% elif s in ["paid", "completed", "settled"] %}
       <span class="badge badge-success">Paid</span>
-    {% elif invoice.status == "Unpaid" or invoice.status == "unpaid" %}
+    {% elif s in ["unpaid", "pending", "outstanding", "due", "draft"] %}
       <span class="badge badge-warning">Unpaid</span>
-    {% elif invoice.status == "Partial" or invoice.status == "partial" or invoice.status == "Partially Paid" %}
-      <span class="badge badge-info">{{ invoice.status }}</span>
+    {% elif s in ["partial", "partially paid", "part-paid"] %}
+      <span class="badge badge-info">Partially Paid</span>
     {% else %}
       <span class="badge badge-neutral">{{ invoice.status or "—" }}</span>
     {% endif %}
@@ -76,30 +77,36 @@
     </div>
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Reference / Invoice #</div>
-      <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ invoice.reference or invoice.raw.reference or invoice.raw.invoiceNumber or "—" }}</div>
+      <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ invoice.reference or invoice.raw.reference or invoice.raw.invoiceNumber or invoice.raw.referenceNumber or invoice.raw.invoiceNo or invoice.raw.ref or "—" }}</div>
     </div>
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Patient</div>
       <div style="font-size: 1rem; margin-top: var(--sp-1);">
-        <a href="/patients/{{ invoice.patient_id }}">
-          <strong>{{ patient_name or ("Patient #" ~ invoice.patient_id) }}</strong>
-        </a>
-        <span style="font-size: 0.85rem; color: var(--text-muted);">(ID: {{ invoice.patient_id }})</span>
+        {% if invoice.patient_id and invoice.patient_id != "0" %}
+          <a href="/patients/{{ invoice.patient_id }}">
+            <strong>{{ patient_name or ("Patient #" ~ invoice.patient_id) }}</strong>
+          </a>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">(ID: {{ invoice.patient_id }})</span>
+        {% elif patient_name %}
+          <strong>{{ patient_name }}</strong>
+        {% else %}
+          —
+        {% endif %}
       </div>
     </div>
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Issue Date</div>
-      <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ invoice.date or "—" }}</div>
+      <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ invoice.date or invoice.raw.date or invoice.raw.dateCreated or invoice.raw.invoiceDate or "—" }}</div>
     </div>
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Due Date</div>
-      <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ invoice.due_date or "—" }}</div>
+      <div style="font-size: 1rem; font-weight: 500; margin-top: var(--sp-1);">{{ invoice.due_date or invoice.raw.dueDate or invoice.raw.due_date or invoice.raw.dateDue or "—" }}</div>
     </div>
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Location</div>
       <div style="font-size: 1rem; margin-top: var(--sp-1);">
-        {{ location_name or invoice.location_id or "—" }}
-        {% if invoice.location_id and location_name %}
+        {{ location_name or invoice.location_id or invoice.raw.location_name or invoice.raw.locationName or "—" }}
+        {% if invoice.location_id and location_name and location_name != invoice.location_id %}
           <span style="font-size: 0.8rem; color: var(--text-muted);">(ID: {{ invoice.location_id }})</span>
         {% endif %}
       </div>
@@ -107,8 +114,8 @@
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Practitioner</div>
       <div style="font-size: 1rem; margin-top: var(--sp-1);">
-        {{ practitioner_name or invoice.practitioner_id or "—" }}
-        {% if invoice.practitioner_id and practitioner_name %}
+        {{ practitioner_name or invoice.practitioner_id or invoice.raw.practitioner_name or invoice.raw.practitionerName or "—" }}
+        {% if invoice.practitioner_id and practitioner_name and practitioner_name != invoice.practitioner_id %}
           <span style="font-size: 0.8rem; color: var(--text-muted);">(ID: {{ invoice.practitioner_id }})</span>
         {% endif %}
       </div>
@@ -118,6 +125,8 @@
       <div style="font-size: 1rem; margin-top: var(--sp-1);">
         {% if invoice.case_id %}
           <code>{{ invoice.case_id }}</code>
+        {% elif invoice.raw.caseID or invoice.raw.case_id or invoice.raw.caseId %}
+          <code>{{ invoice.raw.caseID or invoice.raw.case_id or invoice.raw.caseId }}</code>
         {% else %}
           —
         {% endif %}
@@ -126,14 +135,15 @@
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Status</div>
       <div style="font-size: 1rem; margin-top: var(--sp-1);">
-        {% if invoice.void %}
+        {% set s = (invoice.status or "")|lower|trim %}
+        {% if invoice.void or s in ["void", "voided", "cancelled"] %}
           <span class="badge badge-error">Voided</span>
-        {% elif invoice.status == "Paid" or invoice.status == "paid" %}
+        {% elif s in ["paid", "completed", "settled"] %}
           <span class="badge badge-success">Paid</span>
-        {% elif invoice.status == "Unpaid" or invoice.status == "unpaid" %}
+        {% elif s in ["unpaid", "pending", "outstanding", "due", "draft"] %}
           <span class="badge badge-warning">Unpaid</span>
-        {% elif invoice.status == "Partial" or invoice.status == "partial" or invoice.status == "Partially Paid" %}
-          <span class="badge badge-info">{{ invoice.status }}</span>
+        {% elif s in ["partial", "partially paid", "part-paid"] %}
+          <span class="badge badge-info">Partially Paid</span>
         {% else %}
           <span class="badge badge-neutral">{{ invoice.status or "—" }}</span>
         {% endif %}

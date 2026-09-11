@@ -191,3 +191,26 @@ def test_patients_page_audit_logging(client: TestClient, env) -> None:
     assert last_event.metadata["has_appt_range"] is False
     assert last_event.result == "success"
 
+
+def test_patients_page_search_query_handles_nookal_error_gracefully(
+    client: TestClient, env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When nookal.search_patients raises NookalError, dashboard page degrades gracefully with 200."""
+    from app.shared.exceptions import NookalError
+
+    monkeypatch.setattr(
+        env.nookal,
+        "search_patients",
+        MagicMock(side_effect=NookalError("Nookal error on search_patients: Search variables are missing.")),
+    )
+    csrf = env.login(client, "staff")
+    resp = client.get(
+        "/patients?q=Saurabh+Patel&deceased=&suburb=&age_min=&age_max=&appointment_from=&appointment_to=&referrer_id=",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert resp.status_code == 200
+    html = resp.text
+    assert "Patients" in html
+    assert "0 found" in html or "No matching patients found" in html
+
+

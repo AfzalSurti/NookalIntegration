@@ -416,12 +416,15 @@
           <td>{{ inv.date or "—" }}</td>
           <td><strong>${{ "%.2f"|format(inv.total) if inv.total is not none else "0.00" }}</strong></td>
           <td>
-            {% if inv.status == "Paid" or inv.status == "paid" %}
+            {% set s = (inv.status or "")|lower|trim %}
+            {% if s in ["paid", "completed", "settled"] %}
               <span class="badge badge-success">Paid</span>
-            {% elif inv.status == "Unpaid" or inv.status == "unpaid" %}
+            {% elif s in ["unpaid", "pending", "outstanding", "due", "draft"] %}
               <span class="badge badge-warning">Unpaid</span>
-            {% elif inv.status == "Partial" or inv.status == "partial" or inv.status == "Partially Paid" %}
-              <span class="badge badge-info">{{ inv.status }}</span>
+            {% elif s in ["partial", "partially paid", "part-paid"] %}
+              <span class="badge badge-info">Partially Paid</span>
+            {% elif inv.void or s in ["void", "voided", "cancelled"] %}
+              <span class="badge badge-error">Voided</span>
             {% else %}
               <span class="badge badge-neutral">{{ inv.status or "—" }}</span>
             {% endif %}

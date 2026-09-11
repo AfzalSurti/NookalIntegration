@@ -11,6 +11,7 @@ No guessed endpoints. Unsupported endpoints raise explicit NotImplementedError.
 """
 from __future__ import annotations
 
+import logging
 import re
 import time
 from abc import ABC, abstractmethod
@@ -18,6 +19,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta
 from typing import Any, Callable, Mapping
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from app.shared import audit as audit_mod
 from app.shared.config import NookalConfig, get_settings
@@ -218,6 +221,107 @@ def _unwrap_collection(data: Any, preferred_key: str | None = None) -> list[Any]
         return rec_list
 
     return []
+
+
+def _is_invoice_dict(d: Any, target_id: str | None = None) -> bool:
+    if not isinstance(d, Mapping):
+        return False
+    # Check if target_id matches
+    if target_id is not None:
+        rec_id = str(d.get("ID") or d.get("id") or d.get("invoice_id") or d.get("invoiceID") or d.get("InvoiceID") or d.get("invoiceId") or "")
+        if rec_id and rec_id == str(target_id):
+            return True
+    # Check for characteristic invoice identification keys
+    has_id = any(k in d for k in ("ID", "id", "invoice_id", "invoiceID", "InvoiceID", "invoiceId", "invoiceNumber", "InvoiceNumber"))
+    # Check for characteristic invoice properties
+    has_invoice_props = any(
+        k in d
+        for k in (
+            "totalDebits", "total_debits", "TotalDebits",
+            "patientID", "patient_id", "PatientID", "Patient_ID",
+            "balance", "totalBalance", "TotalBalance",
+            "totalPayments", "TotalPayments",
+            "date", "dueDate", "due_date", "DateDue",
+            "locationID", "practitionerID", "reference",
+            "entries", "items", "account", "invoiceStatus",
+            "total", "Total", "amount", "status", "Status"
+        )
+    )
+    return has_id and has_invoice_props
+
+
+def _unwrap_invoice_data(data: Any, invoice_id: str | None = None) -> Mapping[str, Any] | None:
+    """
+    Unwrap single invoice record from Nookal API response payloads.
+    Handles:
+    - Official Nookal v2 envelope:
+      {"api_call": "getInvoice", "results": {"invoice": {...}}}
+      {"api_call": "getInvoice", "results": {"invoices": [{...}]}}
+      {"api_call": "getInvoice", "results": {"123": {...}}}
+      {"api_call": "getInvoice", "results": {...}}
+    - Collection or nested payloads:
+      {"invoice": {...}}, {"invoices": [{...}]}, {"data": {...}}
+    - Flat single invoice record:
+      {"ID": "123", "patientID": "456", "totalDebits": "150.00", ...}
+    """
+    if not data:
+        return None
+
+    # 1. Direct match if data is already an invoice record
+    if _is_invoice_dict(data, target_id=invoice_id):
+        return data
+
+    # 2. If data is a list of records
+    if isinstance(data, list):
+        if invoice_id:
+            for item in data:
+                if isinstance(item, Mapping) and _is_invoice_dict(item, target_id=invoice_id):
+                    return item
+        for item in data:
+            if isinstance(item, Mapping) and _is_invoice_dict(item):
+                return item
+        return None
+
+    if not isinstance(data, Mapping):
+        return None
+
+    def _get_ci(d: Mapping[str, Any], *keys: str) -> Any:
+        target_keys = {k.casefold() for k in keys}
+        for k, v in d.items():
+            if str(k).casefold() in target_keys:
+                return v
+        return None
+
+    # 3. Check inside 'results' container (official Nookal v2 envelope)
+    results = _get_ci(data, "results")
+    if results is not None:
+        unwrapped = _unwrap_invoice_data(results, invoice_id=invoice_id)
+        if unwrapped is not None:
+            return unwrapped
+
+    # 4. Check candidate containers
+    for key in ("invoice", "invoices", "data"):
+        sub = _get_ci(data, key)
+        if sub is not None:
+            unwrapped = _unwrap_invoice_data(sub, invoice_id=invoice_id)
+            if unwrapped is not None:
+                return unwrapped
+
+    # 5. Check if data is keyed by target_id: {"123": {...}}
+    if invoice_id and str(invoice_id) in data and isinstance(data[str(invoice_id)], Mapping):
+        return data[str(invoice_id)]
+
+    # 6. Check any nested mapping value in data
+    for k, v in data.items():
+        if isinstance(v, Mapping) and _is_invoice_dict(v, target_id=invoice_id):
+            return v
+
+    # 7. Fallback: if data has any ID key or patient key and doesn't look like an envelope
+    if not any(k in data for k in ("api_call", "results", "status", "settings")):
+        if any(k in data for k in ("ID", "id", "invoice_id", "invoiceID", "totalDebits", "patientID", "patient_id")):
+            return data
+
+    return None
 
 
 # --- Documented Nookal Entities ---
@@ -1146,26 +1250,73 @@ class HttpNookalClient(NookalClient):
         if date_of_birth:
             params["date_of_birth"] = date_of_birth
         if fuzzy_search:
-            params["fuzzy_search"] = fuzzy_search
+            clean_term = fuzzy_search.strip()
+            params["fuzzy_search"] = clean_term
+            if "@" in clean_term and "email" not in params:
+                params["email"] = clean_term
+            elif not first_name and not last_name and not patient_id:
+                parts = clean_term.split()
+                if len(parts) >= 2:
+                    params["first_name"] = parts[0]
+                    params["last_name"] = " ".join(parts[1:])
+                elif len(parts) == 1:
+                    if clean_term.isdigit():
+                        params["patient_id"] = clean_term
+                    else:
+                        params["first_name"] = clean_term
 
         # If search parameters are given, query /searchPatients
+        results: list[PatientRef] = []
         if params:
-            data = self._request(
-                "GET",
-                "/searchPatients",
-                action="search_patients",
-                target_type="patient_record",
-                target_id="search",
-                params=params,
-            )
-            rows = _unwrap_collection(data, "patients")
-            results = [self._parse_patient(row) for row in rows if isinstance(row, Mapping)]
+            try:
+                data = self._request(
+                    "GET",
+                    "/searchPatients",
+                    action="search_patients",
+                    target_type="patient_record",
+                    target_id="search",
+                    params=params,
+                )
+                rows = _unwrap_collection(data, "patients")
+                results = [self._parse_patient(row) for row in rows if isinstance(row, Mapping)]
+            except NookalError as exc:
+                logger.warning(
+                    "Nookal /searchPatients failed (%s); falling back to /getPatients directory search",
+                    exc,
+                )
+                results = []
+                try:
+                    results = self.get_patients(page=1, page_length=200, deceased=deceased)
+                except Exception as fallback_exc:
+                    logger.error("Fallback get_patients also failed: %s", fallback_exc)
+                    raise exc
+
+            # If search returned 0 results and fuzzy_search was requested,
+            # fall back to get_patients directory to see if patient exists in local directory
+            if not results and fuzzy_search:
+                try:
+                    results = self.get_patients(page=1, page_length=200, deceased=deceased)
+                except Exception:
+                    pass
         else:
             # General directory query uses /getPatients
             results = self.get_patients(page=1, page_length=200, deceased=deceased)
 
         if deceased is not None:
             results = [p for p in results if p.deceased == bool(deceased)]
+
+        # Client-side fuzzy query filtering
+        if fuzzy_search:
+            needle = fuzzy_search.strip().lower()
+            results = [
+                p
+                for p in results
+                if needle in (p.display_name or "").lower()
+                or needle in f"{p.first_name or ''} {p.last_name or ''}".lower()
+                or needle in (p.phone or "").lower()
+                or needle in (p.email or "").lower()
+                or needle == (p.patient_id or "").lower()
+            ]
 
         # Client-side demographic filtering
         if suburb is not None:
@@ -1247,16 +1398,24 @@ class HttpNookalClient(NookalClient):
 
     def find_patient_by_phone(self, phone: str) -> list[PatientRef]:
         clean_phone = re.sub(r"[^\d+]", "", phone)
-        data = self._request(
-            "GET",
-            "/searchPatients",
-            action="find_patient_by_phone",
-            target_type="patient_record",
-            target_id="phone_lookup",
-            params={"fuzzy_search": phone},
-        )
-        rows = _unwrap_collection(data, "patients")
-        patients = [self._parse_patient(row) for row in rows if isinstance(row, Mapping)]
+        try:
+            data = self._request(
+                "GET",
+                "/searchPatients",
+                action="find_patient_by_phone",
+                target_type="patient_record",
+                target_id="phone_lookup",
+                params={"fuzzy_search": phone, "phone": phone, "Mobile": phone},
+            )
+            rows = _unwrap_collection(data, "patients")
+            patients = [self._parse_patient(row) for row in rows if isinstance(row, Mapping)]
+        except NookalError as exc:
+            logger.warning(
+                "find_patient_by_phone /searchPatients failed (%s); falling back to /getPatients",
+                exc,
+            )
+            patients = self.get_patients(page=1, page_length=200)
+
         matched = []
         for p in patients:
             if p.phone:
@@ -2305,21 +2464,60 @@ class HttpNookalClient(NookalClient):
     def get_invoice(self, invoice_id: str, *, void: int | None = None) -> Invoice:
         if not invoice_id:
             raise NookalValidationError("invoice_id is required for get_invoice")
-        params: dict[str, Any] = {"invoice_id": invoice_id}
+
+        # Nookal API accepts multiple aliases for invoice identifier: invoice_id, invoiceID, InvoiceID, ID
+        params: dict[str, Any] = {
+            "invoice_id": invoice_id,
+            "invoiceID": invoice_id,
+            "InvoiceID": invoice_id,
+            "ID": invoice_id,
+        }
         if void is not None:
             params["void"] = void
 
-        data = self._request(
-            "GET",
-            "/getInvoice",
-            action="get_invoice",
-            target_type="finance",
-            target_id=invoice_id,
-            params=params,
-        )
-        if isinstance(data, Mapping):
-            inv_data = data.get("invoice") if isinstance(data.get("invoice"), Mapping) else data
-            return self._parse_invoice(inv_data)
+        inv_data = None
+        # 1. First attempt: call dedicated /getInvoice endpoint
+        try:
+            data = self._request(
+                "GET",
+                "/getInvoice",
+                action="get_invoice",
+                target_type="finance",
+                target_id=invoice_id,
+                params=params,
+            )
+            inv_data = _unwrap_invoice_data(data, invoice_id=invoice_id)
+        except (NookalNotFound, NookalValidationError, NookalError):
+            inv_data = None
+
+        # 2. Resilient fallback: if /getInvoice was not found, errored, or returned envelope without valid ID
+        if not inv_data or not (
+            inv_data.get("ID")
+            or inv_data.get("id")
+            or inv_data.get("invoice_id")
+            or inv_data.get("invoiceID")
+            or inv_data.get("InvoiceID")
+        ):
+            try:
+                # Query /getInvoices with expanded=1 to search for the record
+                invoices = self.get_invoices(expanded=1, void=void)
+                matching = next(
+                    (
+                        inv
+                        for inv in invoices
+                        if str(inv.invoice_id) == str(invoice_id)
+                        or (inv.reference and str(inv.reference) == str(invoice_id))
+                    ),
+                    None,
+                )
+                if matching:
+                    return matching
+            except Exception:
+                pass
+
+        if inv_data and isinstance(inv_data, Mapping):
+            return self._parse_invoice(inv_data, fallback_invoice_id=invoice_id)
+
         raise NookalNotFound(f"get_invoice: invoice {invoice_id} not found")
 
     def get_invoices(
@@ -3071,7 +3269,11 @@ class HttpNookalClient(NookalClient):
         )
 
     @staticmethod
-    def _parse_invoice(data: Any, fallback_patient_id: str | None = None) -> Invoice:
+    def _parse_invoice(
+        data: Any,
+        fallback_patient_id: str | None = None,
+        fallback_invoice_id: str | None = None,
+    ) -> Invoice:
         if not isinstance(data, Mapping):
             raise NookalValidationError("unexpected invoice payload shape")
         iid = (
@@ -3083,13 +3285,24 @@ class HttpNookalClient(NookalClient):
             or data.get("invoiceId")
             or data.get("invoiceNumber")
             or data.get("InvoiceNumber")
+            or fallback_invoice_id
         )
+        patient_obj = data.get("patient") if isinstance(data.get("patient"), Mapping) else {}
+        client_obj = data.get("client") if isinstance(data.get("client"), Mapping) else {}
         pid = (
             data.get("patientID")
             or data.get("patient_id")
             or data.get("PatientID")
             or data.get("Patient_ID")
             or data.get("patientId")
+            or data.get("clientID")
+            or data.get("client_id")
+            or data.get("ClientID")
+            or patient_obj.get("ID")
+            or patient_obj.get("id")
+            or patient_obj.get("patientID")
+            or client_obj.get("ID")
+            or client_obj.get("id")
             or fallback_patient_id
         )
         account_data = data.get("account") if isinstance(data.get("account"), Mapping) else {}
@@ -3158,9 +3371,15 @@ class HttpNookalClient(NookalClient):
             or data.get("date_created")
             or data.get("invoiceDate")
             or data.get("invoice_date")
+            or data.get("InvoiceDate")
+            or data.get("issueDate")
+            or data.get("issue_date")
+            or data.get("IssueDate")
             or data.get("Date")
             or data.get("created")
             or data.get("created_date")
+            or data.get("created_at")
+            or data.get("createdAt")
             or data.get("timestamp")
         )
         parsed_date: str | None = None
@@ -3179,9 +3398,48 @@ class HttpNookalClient(NookalClient):
             except Exception:
                 return None
 
-        bal_val = _to_float(data.get("totalBalance") or account_data.get("balance") or data.get("balance"))
-        deb_val = _to_float(data.get("totalDebits") or account_data.get("debits") or parsed_total)
-        pay_val = _to_float(data.get("totalPayments") or account_data.get("payments"))
+        bal_val = _to_float(
+            data.get("totalBalance")
+            or data.get("TotalBalance")
+            or data.get("total_balance")
+            or data.get("balance")
+            or data.get("Balance")
+            or data.get("balanceDue")
+            or data.get("balance_due")
+            or data.get("BalanceDue")
+            or data.get("amountDue")
+            or data.get("amount_due")
+            or data.get("AmountDue")
+            or account_data.get("balance")
+            or account_data.get("totalBalance")
+        )
+        deb_val = _to_float(
+            data.get("totalDebits")
+            or data.get("TotalDebits")
+            or data.get("total_debits")
+            or data.get("total")
+            or data.get("Total")
+            or data.get("amount")
+            or data.get("Amount")
+            or data.get("totalAmount")
+            or data.get("total_amount")
+            or account_data.get("debits")
+            or account_data.get("totalDebits")
+            or parsed_total
+        )
+        pay_val = _to_float(
+            data.get("totalPayments")
+            or data.get("TotalPayments")
+            or data.get("total_payments")
+            or data.get("paid")
+            or data.get("Paid")
+            or data.get("amountPaid")
+            or data.get("amount_paid")
+            or data.get("totalPaid")
+            or data.get("total_paid")
+            or account_data.get("payments")
+            or account_data.get("totalPayments")
+        )
 
         is_void = bool(void_val in (1, "1", True, "true", "True"))
 
@@ -3189,53 +3447,115 @@ class HttpNookalClient(NookalClient):
             data.get("status")
             or data.get("Status")
             or data.get("invoiceStatus")
+            or data.get("invoice_status")
+            or data.get("InvoiceStatus")
             or data.get("paymentStatus")
             or data.get("payment_status")
+            or data.get("PaymentStatus")
             or account_data.get("status")
+            or account_data.get("paymentStatus")
         )
 
-        if not raw_status:
-            if is_void:
-                raw_status = "Void"
-            elif bal_val is not None and bal_val <= 0 and ((deb_val is not None and deb_val > 0) or (pay_val is not None and pay_val > 0)):
-                raw_status = "Paid"
-            elif pay_val is not None and pay_val > 0 and (bal_val is not None and bal_val > 0):
-                raw_status = "Partially Paid"
-            elif bal_val is not None and bal_val > 0:
-                raw_status = "Unpaid"
-            elif parsed_total is not None and parsed_total > 0:
-                raw_status = "Paid"
-            else:
-                raw_status = "Valid"
+        status_clean = str(raw_status).strip().lower() if raw_status is not None else ""
 
+        if is_void or status_clean in ("void", "voided", "cancelled", "canceled"):
+            final_status = "Void"
+            is_void = True
+        elif (
+            status_clean in ("paid", "completed", "settled", "closed", "full")
+            or data.get("isPaid") is True
+            or data.get("is_paid") in (1, "1", True, "true")
+        ):
+            final_status = "Paid"
+        elif (
+            status_clean in ("unpaid", "pending", "outstanding", "open", "due", "draft", "not paid", "un-paid")
+            or data.get("isPaid") is False
+            or data.get("is_paid") in (0, "0", False, "false")
+        ):
+            final_status = "Unpaid"
+        elif status_clean in ("partial", "partially paid", "partially_paid", "part paid", "part-paid"):
+            final_status = "Partially Paid"
+        elif bal_val is not None and bal_val <= 0.001 and ((deb_val is not None and deb_val > 0) or (pay_val is not None and pay_val > 0)):
+            final_status = "Paid"
+        elif pay_val is not None and deb_val is not None and deb_val > 0 and pay_val >= deb_val:
+            final_status = "Paid"
+        elif pay_val is not None and pay_val > 0 and bal_val is not None and bal_val > 0.001:
+            final_status = "Partially Paid"
+        elif bal_val is not None and bal_val > 0.001:
+            final_status = "Unpaid"
+        elif pay_val is not None and pay_val == 0.0:
+            final_status = "Unpaid"
+        elif status_clean in ("1", "true"):
+            final_status = "Paid"
+        elif status_clean in ("0", "false"):
+            final_status = "Unpaid"
+        else:
+            final_status = "Unpaid" if (parsed_total is not None and parsed_total > 0) else "Valid"
+
+        # Mandatory consistency: if invoice is Paid, balance due MUST be 0 and amount paid MUST be the total
+        if final_status == "Paid":
+            bal_val = 0.0
+            if parsed_total is not None and parsed_total > 0:
+                if pay_val is None or pay_val < parsed_total:
+                    pay_val = float(parsed_total)
+        elif final_status == "Unpaid":
+            if (bal_val is None or bal_val == 0.0) and parsed_total is not None and parsed_total > 0:
+                bal_val = float(parsed_total)
+            if pay_val is None:
+                pay_val = 0.0
+
+        loc_obj = data.get("location") if isinstance(data.get("location"), Mapping) else {}
         loc_id = (
             data.get("locationID")
             or data.get("location_id")
             or data.get("LocationID")
-            or data.get("location")
+            or loc_obj.get("ID")
+            or loc_obj.get("id")
+            or (data.get("location") if not isinstance(data.get("location"), Mapping) else None)
             or data.get("locationId")
         )
+        prac_obj = data.get("practitioner") if isinstance(data.get("practitioner"), Mapping) else {}
+        prov_obj = data.get("provider") if isinstance(data.get("provider"), Mapping) else {}
         prac_id = (
             data.get("practitionerID")
             or data.get("practitioner_id")
             or data.get("PractitionerID")
-            or data.get("practitioner")
+            or prac_obj.get("ID")
+            or prac_obj.get("id")
+            or prov_obj.get("ID")
+            or prov_obj.get("id")
+            or (data.get("practitioner") if not isinstance(data.get("practitioner"), Mapping) else None)
             or data.get("practitionerId")
+            or data.get("providerID")
+            or data.get("provider_id")
         )
+        case_obj = data.get("case") if isinstance(data.get("case"), Mapping) else {}
         case_id = (
             data.get("caseID")
             or data.get("case_id")
             or data.get("CaseID")
-            or data.get("case")
+            or case_obj.get("ID")
+            or case_obj.get("id")
+            or (data.get("case") if not isinstance(data.get("case"), Mapping) else None)
             or data.get("caseId")
+            or data.get("caseNumber")
+            or data.get("case_number")
         )
         ref_no = (
             data.get("reference")
             or data.get("referenceNumber")
             or data.get("Reference")
+            or data.get("reference_number")
+            or data.get("ReferenceNumber")
             or data.get("invoiceNumber")
             or data.get("invoice_number")
             or data.get("InvoiceNumber")
+            or data.get("invoiceNo")
+            or data.get("invoice_no")
+            or data.get("InvoiceNo")
+            or data.get("ref")
+            or data.get("Ref")
+            or data.get("number")
         )
         raw_due_date = (
             data.get("dueDate")
@@ -3243,6 +3563,9 @@ class HttpNookalClient(NookalClient):
             or data.get("dateDue")
             or data.get("DateDue")
             or data.get("DueDate")
+            or data.get("date_due")
+            or data.get("paymentDueDate")
+            or data.get("payment_due_date")
         )
         parsed_due_date = None
         if raw_due_date:
@@ -3271,14 +3594,30 @@ class HttpNookalClient(NookalClient):
             or data.get("comments")
             or data.get("description")
             or data.get("Notes")
+            or data.get("memo")
+            or data.get("note")
         )
+
+        raw_dict = dict(data)
+        if patient_obj:
+            pn = patient_obj.get("name") or f"{patient_obj.get('first_name', '')} {patient_obj.get('last_name', '')}".strip()
+            if pn and "patient_name" not in raw_dict:
+                raw_dict["patient_name"] = pn
+        if loc_obj:
+            ln = loc_obj.get("name") or loc_obj.get("location_name")
+            if ln and "location_name" not in raw_dict:
+                raw_dict["location_name"] = ln
+        if prac_obj:
+            prn = prac_obj.get("name") or f"{prac_obj.get('first_name', '')} {prac_obj.get('last_name', '')}".strip()
+            if prn and "practitioner_name" not in raw_dict:
+                raw_dict["practitioner_name"] = prn
 
         return Invoice(
             invoice_id=str(iid or ""),
             patient_id=str(pid or ""),
             date=parsed_date,
             total=parsed_total,
-            status=raw_status,
+            status=final_status,
             void=is_void,
             expanded=bool(entries),
             entries=entries,
@@ -3291,7 +3630,7 @@ class HttpNookalClient(NookalClient):
             paid=pay_val,
             tax=raw_tax,
             notes=str(notes_val) if notes_val else None,
-            raw=dict(data),
+            raw=raw_dict,
         )
 
     @staticmethod
@@ -3528,8 +3867,16 @@ class MockNookalClient(NookalClient):
         if last_name:
             results = [p for p in results if (p.last_name or "").lower() == last_name.lower()]
         if fuzzy_search:
-            needle = fuzzy_search.lower()
-            results = [p for p in results if needle in (p.display_name or "").lower() or needle in (p.phone or "")]
+            needle = fuzzy_search.strip().lower()
+            results = [
+                p
+                for p in results
+                if needle in (p.display_name or "").lower()
+                or needle in f"{p.first_name or ''} {p.last_name or ''}".lower()
+                or needle in (p.phone or "").lower()
+                or needle in (p.email or "").lower()
+                or needle == (p.patient_id or "").lower()
+            ]
         if suburb is not None:
             if isinstance(suburb, (list, set, tuple)):
                 suburbs_set = {s.casefold() for s in suburb if s}

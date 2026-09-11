@@ -47,8 +47,16 @@ class InvoiceService:
 
         filtered = all_invoices
         if status:
-            norm_status = status.lower()
-            filtered = [i for i in filtered if (i.status or "").lower() == norm_status]
+            norm_status = status.strip().lower()
+            if norm_status in ("paid", "completed", "settled"):
+                filtered = [i for i in filtered if (i.status or "").strip().lower() in ("paid", "completed", "settled")]
+            elif norm_status in ("unpaid", "pending", "outstanding", "due", "draft"):
+                filtered = [i for i in filtered if (i.status or "").strip().lower() in ("unpaid", "pending", "outstanding", "due", "draft")]
+            elif norm_status in ("partial", "partially paid", "part-paid"):
+                filtered = [i for i in filtered if (i.status or "").strip().lower() in ("partial", "partially paid", "part-paid")]
+            else:
+                filtered = [i for i in filtered if (i.status or "").strip().lower() == norm_status]
+
         if date_from:
             filtered = [i for i in filtered if i.date and i.date >= date_from]
         if date_to:
@@ -85,12 +93,25 @@ class InvoiceService:
                         if entry_sum > 0:
                             calc_total = float(entry_sum)
 
+                    final_status = full_inv.status if (full_inv.status and full_inv.status != "—") else inv.status
+                    eff_bal = full_inv.balance if full_inv.balance is not None else inv.balance
+                    eff_paid = full_inv.paid if full_inv.paid is not None else inv.paid
+                    if (final_status or "").strip().lower() in ("paid", "completed", "settled"):
+                        eff_bal = 0.0
+                        if calc_total is not None and calc_total > 0:
+                            eff_paid = calc_total
+                    elif (final_status or "").strip().lower() in ("unpaid", "pending", "outstanding", "due", "draft"):
+                        if (eff_bal is None or eff_bal == 0.0) and calc_total is not None:
+                            eff_bal = calc_total
+                        if eff_paid is None:
+                            eff_paid = 0.0
+
                     invoices[idx] = Invoice(
                         invoice_id=inv.invoice_id,
                         patient_id=inv.patient_id or full_inv.patient_id,
                         date=full_inv.date or inv.date,
                         total=calc_total,
-                        status=full_inv.status if (full_inv.status and full_inv.status != "—") else inv.status,
+                        status=final_status,
                         void=full_inv.void if full_inv.void is not None else inv.void,
                         expanded=bool(entries) or full_inv.expanded or inv.expanded,
                         entries=entries,
@@ -99,8 +120,8 @@ class InvoiceService:
                         case_id=full_inv.case_id or inv.case_id,
                         reference=full_inv.reference or inv.reference,
                         due_date=full_inv.due_date or inv.due_date,
-                        balance=full_inv.balance if full_inv.balance is not None else inv.balance,
-                        paid=full_inv.paid if full_inv.paid is not None else inv.paid,
+                        balance=eff_bal,
+                        paid=eff_paid,
                         tax=full_inv.tax if full_inv.tax is not None else inv.tax,
                         notes=full_inv.notes or inv.notes,
                         raw={**inv.raw, **full_inv.raw},
@@ -177,27 +198,39 @@ class InvoiceService:
             if entry_sum > 0:
                 effective_total = float(entry_sum)
 
-        if effective_total != inv.total or (entries and not inv.entries):
-            inv = Invoice(
-                invoice_id=inv.invoice_id,
-                patient_id=inv.patient_id,
-                date=inv.date,
-                total=effective_total,
-                status=inv.status,
-                void=inv.void,
-                expanded=bool(entries),
-                entries=entries,
-                location_id=inv.location_id,
-                practitioner_id=inv.practitioner_id,
-                case_id=inv.case_id,
-                reference=inv.reference,
-                due_date=inv.due_date,
-                balance=inv.balance,
-                paid=inv.paid,
-                tax=inv.tax,
-                notes=inv.notes,
-                raw=inv.raw,
-            )
+        norm_status = (inv.status or "").strip().lower()
+        eff_bal = inv.balance
+        eff_paid = inv.paid
+        if norm_status in ("paid", "completed", "settled"):
+            eff_bal = 0.0
+            if effective_total is not None and effective_total > 0:
+                eff_paid = effective_total
+        elif norm_status in ("unpaid", "pending", "outstanding", "due", "draft"):
+            if (eff_bal is None or eff_bal == 0.0) and effective_total is not None:
+                eff_bal = effective_total
+            if eff_paid is None:
+                eff_paid = 0.0
+
+        inv = Invoice(
+            invoice_id=inv.invoice_id,
+            patient_id=inv.patient_id,
+            date=inv.date,
+            total=effective_total,
+            status=inv.status,
+            void=inv.void,
+            expanded=bool(entries),
+            entries=entries,
+            location_id=inv.location_id,
+            practitioner_id=inv.practitioner_id,
+            case_id=inv.case_id,
+            reference=inv.reference,
+            due_date=inv.due_date,
+            balance=eff_bal,
+            paid=eff_paid,
+            tax=inv.tax,
+            notes=inv.notes,
+            raw=inv.raw,
+        )
 
         self._audit(
             actor=actor,

@@ -1,7 +1,9 @@
 """Server-rendered operational pages — data still loaded via authorized API services."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
+from dataclasses import is_dataclass, replace
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -519,6 +521,16 @@ def _resolve_invoice_context(
         except Exception:
             patient_name = None
 
+    if not patient_name and isinstance(getattr(invoice, "raw", None), Mapping):
+        patient_name = (
+            invoice.raw.get("patient_name")
+            or invoice.raw.get("patientName")
+            or invoice.raw.get("PatientName")
+            or invoice.raw.get("client_name")
+            or invoice.raw.get("clientName")
+            or (invoice.raw.get("patient", {}).get("name") if isinstance(invoice.raw.get("patient"), Mapping) else None)
+        )
+
     location_name = None
     if invoice.location_id and hasattr(container.nookal, "get_locations"):
         try:
@@ -529,6 +541,14 @@ def _resolve_invoice_context(
         except Exception:
             pass
 
+    if not location_name and isinstance(getattr(invoice, "raw", None), Mapping):
+        location_name = (
+            invoice.raw.get("location_name")
+            or invoice.raw.get("locationName")
+            or invoice.raw.get("LocationName")
+            or (invoice.raw.get("location", {}).get("name") if isinstance(invoice.raw.get("location"), Mapping) else None)
+        )
+
     practitioner_name = None
     if invoice.practitioner_id and hasattr(container.nookal, "get_practitioners"):
         try:
@@ -538,6 +558,16 @@ def _resolve_invoice_context(
                     break
         except Exception:
             pass
+
+    if not practitioner_name and isinstance(getattr(invoice, "raw", None), Mapping):
+        practitioner_name = (
+            invoice.raw.get("practitioner_name")
+            or invoice.raw.get("practitionerName")
+            or invoice.raw.get("PractitionerName")
+            or invoice.raw.get("provider_name")
+            or invoice.raw.get("providerName")
+            or (invoice.raw.get("practitioner", {}).get("name") if isinstance(invoice.raw.get("practitioner"), Mapping) else None)
+        )
 
     payments = []
     try:
@@ -554,8 +584,20 @@ def _resolve_invoice_context(
     calc_subtotal = sum(((e.price or 0.0) * (e.quantity if e.quantity is not None else 1.0)) for e in all_entries) if all_entries else (invoice.total or 0.0)
     calc_tax = invoice.tax if invoice.tax is not None else sum((e.tax or 0.0) for e in all_entries)
     calc_total = invoice.total if (invoice.total is not None and invoice.total > 0) else (calc_subtotal + calc_tax)
-    calc_paid = invoice.paid if invoice.paid is not None else (calc_total if (invoice.status or "").lower() == "paid" else 0.0)
-    calc_balance = invoice.balance if invoice.balance is not None else (0.0 if (invoice.status or "").lower() == "paid" else max(0.0, calc_total - calc_paid))
+
+    norm_status = (invoice.status or "").strip().lower()
+    if norm_status in ("paid", "completed", "settled") or (invoice.balance is not None and invoice.balance <= 0.001 and calc_total > 0):
+        calc_paid = float(calc_total) if calc_total is not None else (invoice.paid or 0.0)
+        calc_balance = 0.0
+    elif norm_status in ("unpaid", "pending", "outstanding", "due", "draft"):
+        calc_paid = invoice.paid if (invoice.paid is not None and invoice.paid > 0) else 0.0
+        calc_balance = invoice.balance if (invoice.balance is not None and invoice.balance > 0) else max(0.0, calc_total - calc_paid)
+    else:
+        calc_paid = invoice.paid if invoice.paid is not None else 0.0
+        calc_balance = invoice.balance if invoice.balance is not None else max(0.0, calc_total - calc_paid)
+        if calc_balance <= 0.001 and calc_total > 0:
+            calc_paid = calc_total
+            calc_balance = 0.0
 
     return {
         "invoice": invoice,
@@ -592,6 +634,10 @@ async def invoice_detail_page(
         )
     except Exception as exc:
         raise HTTPException(status_code=404, detail="Invoice not found") from exc
+
+    if (not getattr(invoice, "patient_id", None) or invoice.patient_id == "0") and patient_id and patient_id != "0":
+        if is_dataclass(invoice):
+            invoice = replace(invoice, patient_id=patient_id)
 
     entries = []
     try:
