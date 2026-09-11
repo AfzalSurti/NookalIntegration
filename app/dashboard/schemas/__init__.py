@@ -135,13 +135,18 @@ class PatientDetail(BaseModel):
 
 
 class SafeDraftOut(BaseModel):
-    """Safe task draft view — no clinical free-text dumps."""
+    """Safe task draft view."""
 
     template_id: str | None = None
     letter_type: str | None = None
     certificate_type: str | None = None
     status_tag: str | None = None
     source: str | None = None
+    draft_body: str | None = None
+    statement: str | None = None
+    notes: str | None = None
+    referrer_name: str | None = None
+    completion_date: str | None = None
     keys: list[str] = Field(default_factory=list)
 
 
@@ -156,6 +161,7 @@ class TaskOut(BaseModel):
     created_at: str
     updated_at: str
     safe_draft: SafeDraftOut
+    patient_name: str | None = None
 
 
 class ReviewActionRequest(BaseModel):

@@ -46,7 +46,15 @@
           <td><code>{{ t.id[:8] }}…</code></td>
           <td><span class="badge badge-neutral">{{ t.type }}</span></td>
           <td>
-            <a href="/patients/{{ t.patient_id }}"><strong>{{ t.patient_id }}</strong></a>
+            <a href="/patients/{{ t.patient_id }}">
+              <strong>{{ patient_info[t.patient_id].name if patient_info and patient_info[t.patient_id] and patient_info[t.patient_id].found else t.patient_id }}</strong>
+            </a>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              <code>{{ t.patient_id }}</code>
+              {% if patient_info and patient_info[t.patient_id] and patient_info[t.patient_id].found %}
+                <span class="badge badge-success" style="font-size: 0.65rem; padding: 1px 4px; margin-left: 2px;">Nookal</span>
+              {% endif %}
+            </div>
           </td>
           <td>{{ t.safe_draft.template_id or "Standard" }}</td>
           <td>

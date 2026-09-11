@@ -1,45 +1,219 @@
 {% extends "base.html" %}
 {% block title %}Approvals — Back to Ease{% endblock %}
 {% block topbar_title %}Approval Queue{% endblock %}
+
+{% block head %}
+<style>
+  .approval-filters {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-4);
+    flex-wrap: wrap;
+  }
+  .filter-tabs {
+    display: inline-flex;
+    background: #f1f5f9;
+    border-radius: var(--radius-sm);
+    padding: 3px;
+    gap: 2px;
+  }
+  .filter-tab {
+    padding: 5px 12px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+  }
+  .filter-tab:hover {
+    color: var(--text-primary);
+    text-decoration: none;
+  }
+  .filter-tab.active {
+    background: #ffffff;
+    color: var(--brand);
+    box-shadow: var(--shadow-sm);
+  }
+  .nookal-patient-box {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .draft-snippet-box {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: var(--text-primary);
+    max-width: 380px;
+    max-height: 75px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: pre-wrap;
+    font-family: var(--font);
+  }
+  .detail-patient-card {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: var(--radius-sm);
+    padding: var(--sp-3) var(--sp-4);
+    margin-bottom: var(--sp-3);
+  }
+  .detail-draft-card {
+    background: #f8fafc;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    padding: var(--sp-3) var(--sp-4);
+    margin-bottom: var(--sp-3);
+    font-size: 0.88rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    max-height: 250px;
+    overflow-y: auto;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
-  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
-    <h1 class="page-title">Approval Queue</h1>
-    <span class="badge {% if tasks|length > 0 %}badge-warning{% else %}badge-success{% endif %}">
-      {{ tasks|length }} pending review
-    </span>
+  <div class="flex gap-3" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+    <div class="flex gap-3" style="align-items: center;">
+      <h1 class="page-title">Approval Queue</h1>
+      <span class="badge {% if total_pending > 0 %}badge-warning{% else %}badge-success{% endif %}">
+        {{ total_pending }} pending sign-off
+      </span>
+    </div>
+    <div class="btn-group">
+      <a href="/templates?tab=letters" class="btn btn-secondary btn-sm">
+        📝 Letter Templates
+      </a>
+      <a href="/documents" class="btn btn-secondary btn-sm">
+        ▤ Document Queue
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- Status & Type Filters -->
+<div class="approval-filters">
+  <div class="filter-tabs">
+    <a href="/approvals?status=pending{% if selected_type %}&task_type={{ selected_type }}{% endif %}" class="filter-tab {% if selected_status == 'pending' %}active{% endif %}">
+      Pending Review ({{ total_pending }})
+    </a>
+    <a href="/approvals?status=all{% if selected_type %}&task_type={{ selected_type }}{% endif %}" class="filter-tab {% if selected_status == 'all' %}active{% endif %}">
+      All Tasks
+    </a>
+    <a href="/approvals?status=approved{% if selected_type %}&task_type={{ selected_type }}{% endif %}" class="filter-tab {% if selected_status == 'approved' %}active{% endif %}">
+      Approved
+    </a>
+    <a href="/approvals?status=rejected{% if selected_type %}&task_type={{ selected_type }}{% endif %}" class="filter-tab {% if selected_status == 'rejected' %}active{% endif %}">
+      Rejected
+    </a>
+  </div>
+
+  <div style="display: flex; gap: var(--sp-2); align-items: center;">
+    <label for="type-filter" style="font-size: 0.82rem; font-weight: 600; color: var(--text-muted);">Type:</label>
+    <select id="type-filter" style="width: auto; height: 32px; font-size: 0.82rem; padding: 2px 8px;" onchange="onTypeFilterChange(this.value)">
+      <option value="" {% if not selected_type %}selected{% endif %}>All Types</option>
+      <option value="letter" {% if selected_type == 'letter' %}selected{% endif %}>Clinical Letters</option>
+      <option value="certificate" {% if selected_type == 'certificate' %}selected{% endif %}>Medical Certificates</option>
+      <option value="appointment_action" {% if selected_type == 'appointment_action' %}selected{% endif %}>Appointments</option>
+      <option value="campaign" {% if selected_type == 'campaign' %}selected{% endif %}>Marketing Campaigns</option>
+    </select>
   </div>
 </div>
 
 <div class="card" style="margin-bottom: var(--sp-6);">
   <div class="card-header">
-    <div class="card-title">Tasks Awaiting Clinician / Administrative Sign-Off</div>
+    <div class="card-title">Tasks Awaiting Clinician / Administrative Sign-Off ({{ tasks|length }})</div>
   </div>
   <div class="table-wrapper">
     <table>
       <thead>
         <tr>
           <th>Task ID</th>
-          <th>Type</th>
-          <th>Patient</th>
+          <th>Type &amp; Subtype</th>
+          <th>Patient (Nookal Record)</th>
+          <th>Draft Preview &amp; Summary</th>
           <th>Status</th>
-          <th>Template</th>
           <th>Created</th>
-          {% if can_approve or can_reject %}
-          <th style="text-align: right;">Review Action</th>
-          {% endif %}
+          <th style="text-align: right;">Review Actions</th>
         </tr>
       </thead>
       <tbody>
       {% for t in tasks %}
-        <tr>
-          <td><code>{{ t.id[:8] }}…</code></td>
-          <td><span class="badge badge-info">{{ t.type }}</span></td>
+        {% set p = patient_info[t.patient_id] if patient_info and t.patient_id in patient_info else None %}
+        <tr id="task-row-{{ t.id }}">
           <td>
-            <a href="/patients/{{ t.patient_id }}"><strong>{{ t.patient_id }}</strong></a>
+            <code>{{ t.id[:8] }}…</code>
+            <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">
+              by <strong>{{ t.created_by }}</strong>
+            </div>
           </td>
           <td>
-            {% if t.status == "pending" %}
+            <span class="badge badge-info" style="font-size: 0.72rem;">{{ t.type|upper }}</span>
+            <div style="font-size: 0.8rem; font-weight: 600; margin-top: 3px; color: var(--text-primary);">
+              {% if t.safe_draft.letter_type %}
+                {{ t.safe_draft.letter_type|replace('_', ' ')|title }}
+              {% elif t.safe_draft.certificate_type %}
+                {{ t.safe_draft.certificate_type|replace('_', ' ')|title }} Certificate
+              {% elif t.safe_draft.template_id %}
+                {{ t.safe_draft.template_id|replace('_', ' ')|title }}
+              {% else %}
+                Standard
+              {% endif %}
+            </div>
+          </td>
+          <td>
+            <div class="nookal-patient-box">
+              <div>
+                <a href="/patients/{{ t.patient_id }}">
+                  <strong style="font-size: 0.92rem; color: var(--brand);">
+                    {{ p.name if p and p.found else t.patient_id }}
+                  </strong>
+                </a>
+                {% if p and p.found %}
+                  <span class="badge badge-success" style="font-size: 0.65rem; padding: 1px 5px; margin-left: 3px;" title="Verified in Nookal PMS">✓ Nookal</span>
+                {% endif %}
+              </div>
+              <div style="font-size: 0.76rem; color: var(--text-muted);">
+                ID: <code>{{ t.patient_id }}</code>
+                {% if p and p.dob %} · DOB: {{ p.dob }}{% endif %}
+                {% if p and p.suburb %} · 📍 {{ p.suburb }}{% endif %}
+              </div>
+              {% if p and (p.phone or p.email) %}
+              <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 1px;">
+                {% if p.phone %}<span>📞 {{ p.phone }}</span>{% endif %}
+                {% if p.email %}<span style="margin-left: 6px;">✉ {{ p.email }}</span>{% endif %}
+              </div>
+              {% endif %}
+            </div>
+          </td>
+          <td>
+            {% if t.safe_draft.draft_body or t.safe_draft.statement or t.safe_draft.notes %}
+              <div class="draft-snippet-box">
+                {{ t.safe_draft.draft_body or t.safe_draft.statement or t.safe_draft.notes }}
+              </div>
+            {% elif t.safe_draft.template_id %}
+              <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                Template: <code>{{ t.safe_draft.template_id }}</code>
+              </div>
+            {% else %}
+              <span style="color: var(--text-muted); font-size: 0.82rem;">—</span>
+            {% endif %}
+            {% if t.safe_draft.referrer_name %}
+              <div style="font-size: 0.75rem; color: var(--brand); margin-top: 2px;">
+                Referrer: <strong>{{ t.safe_draft.referrer_name }}</strong>
+              </div>
+            {% endif %}
+          </td>
+          <td>
+            {% if t.status == "pending" or t.status == "pending_review" %}
               <span class="badge badge-warning">Pending Review</span>
             {% elif t.status == "approved" %}
               <span class="badge badge-success">Approved</span>
@@ -48,32 +222,48 @@
             {% else %}
               <span class="badge badge-neutral">{{ t.status }}</span>
             {% endif %}
-          </td>
-          <td>{{ t.safe_draft.template_id or "—" }}</td>
-          <td>{{ t.created_at }}</td>
-          {% if can_approve or can_reject %}
-          <td style="text-align: right;">
-            {% if t.status == "pending" %}
-            <div class="flex gap-2" style="justify-content: flex-end;">
-              {% if can_approve %}
-              <button type="button" class="btn btn-primary btn-sm" onclick="openApprovalModal('approve', '{{ t.id }}', '{{ t.patient_id }}')">Approve</button>
-              {% endif %}
-              {% if can_reject %}
-              <button type="button" class="btn btn-outline btn-sm" style="color: var(--error); border-color: var(--error-border);" onclick="openApprovalModal('reject', '{{ t.id }}', '{{ t.patient_id }}')">Reject</button>
-              {% endif %}
-            </div>
-            {% else %}
-            <span style="color: var(--text-muted); font-size: 0.85rem;">Completed</span>
+            {% if t.reviewed_by %}
+              <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">
+                by {{ t.reviewed_by }}
+              </div>
             {% endif %}
           </td>
-          {% endif %}
+          <td>
+            <div style="font-size: 0.8rem; white-space: nowrap;">{{ t.created_at[:10] if t.created_at else "—" }}</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">{{ t.created_at[11:16] if t.created_at and t.created_at|length > 15 else "" }}</div>
+          </td>
+          <td style="text-align: right;">
+            <div class="flex gap-2" style="justify-content: flex-end; align-items: center;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="openInspectModal('{{ t.id }}')">
+                👁 Inspect
+              </button>
+              {% if (t.status == "pending" or t.status == "pending_review") and (can_approve or can_reject) %}
+                {% if can_approve %}
+                <button type="button" class="btn btn-primary btn-sm" onclick="openApprovalModal('approve', '{{ t.id }}', '{{ p.name if p and p.found else t.patient_id }}', '{{ t.patient_id }}')">
+                  ✓ Approve
+                </button>
+                {% endif %}
+                {% if can_reject %}
+                <button type="button" class="btn btn-outline btn-sm" style="color: var(--error); border-color: var(--error-border);" onclick="openApprovalModal('reject', '{{ t.id }}', '{{ p.name if p and p.found else t.patient_id }}', '{{ t.patient_id }}')">
+                  ✕ Reject
+                </button>
+                {% endif %}
+              {% endif %}
+            </div>
+          </td>
         </tr>
       {% else %}
         <tr>
-          <td colspan="{% if can_approve or can_reject %}7{% else %}6{% endif %}">
+          <td colspan="7">
             <div class="empty-state">
-              <div class="empty-state-title">No pending tasks</div>
-              <div class="empty-state-text">All clinical drafts and operational workflows have been reviewed.</div>
+              <div class="empty-state-title">No tasks found</div>
+              <div class="empty-state-text">
+                {% if selected_status == 'pending' %}
+                  All clinical document drafts, certificates, and operational workflows are fully reviewed!
+                {% else %}
+                  No tasks matching the selected filter criteria.
+                {% endif %}
+              </div>
             </div>
           </td>
         </tr>
@@ -84,12 +274,72 @@
 </div>
 
 <div class="info-banner">
-  Safe Review Mode: Task drafts are sanitized to prevent accidental clinical data leakage. Approvals directly transition the underlying clinical queue.
+  Safe Review Mode: Clinical document drafts and medical certificates are loaded with verified Nookal patient details. Clinician approvals directly trigger official document dispatch and filing in Nookal.
 </div>
 
-<!-- Approval Action Modal -->
+<!-- Task Inspection Modal -->
+<div class="modal-backdrop" id="inspect-modal">
+  <div class="modal" style="max-width: 680px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="inspect-modal-title">Task Inspection</div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;" id="inspect-modal-subtitle"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal('inspect-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <!-- Nookal Patient Card in Modal -->
+      <div class="detail-patient-card" id="inspect-patient-card">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 700; color: #15803d; text-transform: uppercase; letter-spacing: 0.04em;">
+              Nookal Patient Record
+            </div>
+            <div style="font-size: 1.05rem; font-weight: 700; margin-top: 2px;" id="inspect-patient-name">—</div>
+          </div>
+          <a id="inspect-patient-link" href="#" target="_blank" class="btn btn-secondary btn-sm" style="font-size: 0.78rem; height: 26px;">
+            Open Patient File ↗
+          </a>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-top: 8px; font-size: 0.82rem;">
+          <div><strong>ID:</strong> <code id="inspect-patient-id">—</code></div>
+          <div><strong>DOB:</strong> <span id="inspect-patient-dob">—</span></div>
+          <div><strong>Phone:</strong> <span id="inspect-patient-phone">—</span></div>
+          <div><strong>Email:</strong> <span id="inspect-patient-email">—</span></div>
+          <div><strong>Suburb:</strong> <span id="inspect-patient-suburb">—</span></div>
+        </div>
+      </div>
+
+      <!-- Draft Details -->
+      <div style="margin-bottom: var(--sp-2);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">
+            Document Draft Content
+          </div>
+          <span class="badge badge-info" id="inspect-type-badge">TYPE</span>
+        </div>
+        <div class="detail-draft-card" id="inspect-draft-content">Loading draft details...</div>
+      </div>
+
+      <!-- Referrer / Timeline Info -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); font-size: 0.8rem; color: var(--text-secondary); margin-bottom: var(--sp-4);">
+        <div><strong>Template ID:</strong> <code id="inspect-template-id">—</code></div>
+        <div><strong>Referrer:</strong> <span id="inspect-referrer">—</span></div>
+        <div><strong>Created:</strong> <span id="inspect-created-at">—</span></div>
+        <div><strong>Created By:</strong> <span id="inspect-created-by">—</span></div>
+      </div>
+
+      <div class="modal-footer" style="padding: 0; display: flex; justify-content: space-between; align-items: center;">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('inspect-modal')">Close</button>
+        <div class="flex gap-2" id="inspect-action-buttons"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Approval / Rejection Decision Modal -->
 <div class="modal-backdrop" id="approval-modal">
-  <div class="modal">
+  <div class="modal" style="max-width: 580px;">
     <div class="modal-header">
       <div class="modal-title" id="approval-modal-title">Review Task</div>
       <button class="modal-close" onclick="closeModal('approval-modal')">×</button>
@@ -99,16 +349,25 @@
       <form id="approval-form" onsubmit="submitApproval(event)">
         <input type="hidden" id="approval-action" name="action">
         <input type="hidden" id="approval-task-id" name="task_id">
-        <p style="margin-bottom: var(--sp-4); font-size: 0.9rem;" id="approval-prompt-text">
+
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--sp-3); margin-bottom: var(--sp-3);">
+          <div style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">PATIENT TARGET</div>
+          <div style="font-size: 1rem; font-weight: 700; color: var(--brand); margin-top: 2px;" id="approval-patient-display">—</div>
+          <div style="font-size: 0.78rem; color: var(--text-secondary);" id="approval-patient-subtext"></div>
+        </div>
+
+        <p style="margin-bottom: var(--sp-3); font-size: 0.9rem;" id="approval-prompt-text">
           Are you sure you want to approve this task?
         </p>
+
         <div class="form-group" style="margin-bottom: var(--sp-4);">
-          <label for="approval-notes">Reviewer Notes (Optional)</label>
-          <textarea id="approval-notes" name="notes" rows="3" placeholder="Add clinical rationale or review notes..."></textarea>
+          <label for="approval-notes" style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 4px;">Clinician / Reviewer Notes (Optional)</label>
+          <textarea id="approval-notes" name="notes" rows="3" class="form-control" placeholder="Add clinical rationale or review sign-off notes..."></textarea>
         </div>
-        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-4); display: flex; justify-content: flex-end; gap: var(--sp-2);">
           <button type="button" class="btn btn-secondary" onclick="closeModal('approval-modal')">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="approval-submit-btn">Confirm</button>
+          <button type="submit" class="btn btn-primary" id="approval-submit-btn">Confirm Decision</button>
         </div>
       </form>
     </div>
@@ -118,16 +377,97 @@
 
 {% block scripts %}
 <script>
-function openApprovalModal(action, taskId, patientId) {
+// Keep patient info map accessible client-side
+const PATIENT_DATA = {{ patient_info|tojson if patient_info else '{}' }};
+
+function onTypeFilterChange(val) {
+  const url = new URL(window.location.href);
+  if (val) {
+    url.searchParams.set('task_type', val);
+  } else {
+    url.searchParams.delete('task_type');
+  }
+  window.location.href = url.toString();
+}
+
+function openInspectModal(taskId) {
+  apiCall('GET', '/api/approvals/' + encodeURIComponent(taskId))
+    .then(task => {
+      document.getElementById('inspect-modal-title').textContent = 'Task Review: ' + task.type.toUpperCase();
+      document.getElementById('inspect-modal-subtitle').textContent = 'ID: ' + task.id + ' · Status: ' + task.status.toUpperCase();
+
+      const pid = task.patient_id;
+      const p = PATIENT_DATA[pid] || {};
+
+      document.getElementById('inspect-patient-name').textContent = p.name || task.patient_name || pid;
+      document.getElementById('inspect-patient-id').textContent = pid;
+      document.getElementById('inspect-patient-dob').textContent = p.dob || '—';
+      document.getElementById('inspect-patient-phone').textContent = p.phone || '—';
+      document.getElementById('inspect-patient-email').textContent = p.email || '—';
+      document.getElementById('inspect-patient-suburb').textContent = p.suburb || '—';
+      document.getElementById('inspect-patient-link').href = '/patients/' + encodeURIComponent(pid);
+
+      document.getElementById('inspect-type-badge').textContent = task.type.toUpperCase();
+      const draft = task.safe_draft || {};
+      const draftText = draft.draft_body || draft.statement || draft.notes || '(No text content available)';
+      document.getElementById('inspect-draft-content').textContent = draftText;
+
+      document.getElementById('inspect-template-id').textContent = draft.template_id || '—';
+      document.getElementById('inspect-referrer').textContent = draft.referrer_name || '—';
+      document.getElementById('inspect-created-at').textContent = task.created_at || '—';
+      document.getElementById('inspect-created-by').textContent = task.created_by || '—';
+
+      const actionsDiv = document.getElementById('inspect-action-buttons');
+      actionsDiv.innerHTML = '';
+      if (task.status === 'pending' || task.status === 'pending_review') {
+        const approveBtn = document.createElement('button');
+        approveBtn.type = 'button';
+        approveBtn.className = 'btn btn-primary btn-sm';
+        approveBtn.textContent = '✓ Approve Task';
+        approveBtn.onclick = () => {
+          closeModal('inspect-modal');
+          openApprovalModal('approve', task.id, p.name || pid, pid);
+        };
+
+        const rejectBtn = document.createElement('button');
+        rejectBtn.type = 'button';
+        rejectBtn.className = 'btn btn-outline btn-sm';
+        rejectBtn.style.color = 'var(--error)';
+        rejectBtn.style.borderColor = 'var(--error-border)';
+        rejectBtn.textContent = '✕ Reject Draft';
+        rejectBtn.onclick = () => {
+          closeModal('inspect-modal');
+          openApprovalModal('reject', task.id, p.name || pid, pid);
+        };
+
+        actionsDiv.appendChild(rejectBtn);
+        actionsDiv.appendChild(approveBtn);
+      }
+
+      openModal('inspect-modal');
+    })
+    .catch(err => {
+      alert('Failed to inspect task: ' + (err.detail || err.message));
+    });
+}
+
+function openApprovalModal(action, taskId, patientName, patientId) {
   document.getElementById('approval-action').value = action;
   document.getElementById('approval-task-id').value = taskId;
   document.getElementById('approval-notes').value = '';
   document.getElementById('approval-modal-error').style.display = 'none';
+
   const isApprove = (action === 'approve');
-  document.getElementById('approval-modal-title').textContent = isApprove ? 'Approve Task' : 'Reject Task';
+  document.getElementById('approval-modal-title').textContent = isApprove ? 'Approve Clinical Task' : 'Reject Clinical Task';
+
+  const p = PATIENT_DATA[patientId] || {};
+  document.getElementById('approval-patient-display').textContent = patientName || patientId;
+  document.getElementById('approval-patient-subtext').textContent = 'Nookal ID: ' + patientId + (p.phone ? ' · Phone: ' + p.phone : '') + (p.email ? ' · ' + p.email : '');
+
   document.getElementById('approval-prompt-text').textContent = isApprove
-    ? 'Are you sure you want to approve this task for patient ' + patientId + '? This will authorize dispatch or filing.'
-    : 'Are you sure you want to reject this task? This will prevent dispatch and mark the review as rejected.';
+    ? 'Approving certifies clinical accuracy. The document will be filed in Nookal and prepared for dispatch.'
+    : 'Rejecting prevents dispatch and marks the clinical draft as rejected with your rationale notes.';
+
   const btn = document.getElementById('approval-submit-btn');
   btn.textContent = isApprove ? 'Confirm Approval' : 'Confirm Rejection';
   btn.className = isApprove ? 'btn btn-primary' : 'btn btn-outline';

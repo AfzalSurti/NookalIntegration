@@ -13,17 +13,24 @@ AuditFn = Callable[..., Any]
 
 def safe_draft_from_task(task: Task) -> SafeDraftOut:
     draft = task.content_draft or {}
+    source_facts = draft.get("source_facts") if isinstance(draft.get("source_facts"), dict) else {}
+    body_val = draft.get("draft_body") or draft.get("statement") or draft.get("notes")
     return SafeDraftOut(
         template_id=str(draft["template_id"]) if draft.get("template_id") else None,
         letter_type=str(draft["letter_type"]) if draft.get("letter_type") else None,
         certificate_type=str(draft["certificate_type"]) if draft.get("certificate_type") else None,
         status_tag=str(draft["status_tag"]) if draft.get("status_tag") else None,
         source=str(draft["source"]) if draft.get("source") else None,
+        draft_body=str(body_val) if body_val else None,
+        statement=str(draft["statement"]) if draft.get("statement") else None,
+        notes=str(draft["notes"]) if draft.get("notes") else None,
+        referrer_name=str(source_facts.get("referrer_name")) if source_facts.get("referrer_name") else None,
+        completion_date=str(draft.get("completion_date")) if draft.get("completion_date") else (str(source_facts.get("completion_date")) if source_facts.get("completion_date") else None),
         keys=sorted(k for k in draft.keys() if k != "source_facts"),
     )
 
 
-def task_to_out(task: Task) -> TaskOut:
+def task_to_out(task: Task, patient_name: str | None = None) -> TaskOut:
     return TaskOut(
         id=task.id,
         type=task.type.value,
@@ -35,6 +42,7 @@ def task_to_out(task: Task) -> TaskOut:
         created_at=task.created_at,
         updated_at=task.updated_at,
         safe_draft=safe_draft_from_task(task),
+        patient_name=patient_name,
     )
 
 
@@ -46,9 +54,24 @@ class ApprovalService:
     except via ApprovalQueue.approve / reject.
     """
 
-    def __init__(self, *, approval: ApprovalQueue, audit: AuditFn) -> None:
+    def __init__(self, *, approval: ApprovalQueue, audit: AuditFn, nookal: Any = None) -> None:
         self._approval = approval
         self._audit = audit
+        self._nookal = nookal
+
+    def _resolve_patient_name(self, patient_id: str) -> str | None:
+        if not self._nookal or not hasattr(self._nookal, "get_patient") or not patient_id:
+            return None
+        try:
+            p = self._nookal.get_patient(patient_id)
+            if p:
+                fname = getattr(p, "first_name", "") or ""
+                lname = getattr(p, "last_name", "") or ""
+                name = f"{fname} {lname}".strip()
+                return name or patient_id
+        except Exception:
+            pass
+        return None
 
     @property
     def queue(self) -> ApprovalQueue:
@@ -85,10 +108,11 @@ class ApprovalService:
                     "pending_only": pending_only,
                 },
             )
-        return [task_to_out(t) for t in tasks]
+        return [task_to_out(t, patient_name=self._resolve_patient_name(t.patient_id)) for t in tasks]
 
     def get_task(self, task_id: str) -> TaskOut:
-        return task_to_out(self._approval.get(task_id))
+        t = self._approval.get(task_id)
+        return task_to_out(t, patient_name=self._resolve_patient_name(t.patient_id))
 
     def approve(
         self,
@@ -123,7 +147,7 @@ class ApprovalService:
                 "status": task.status.value,
             },
         )
-        return task_to_out(task)
+        return task_to_out(task, patient_name=self._resolve_patient_name(task.patient_id))
 
     def reject(
         self,
@@ -158,7 +182,7 @@ class ApprovalService:
                 "status": task.status.value,
             },
         )
-        return task_to_out(task)
+        return task_to_out(task, patient_name=self._resolve_patient_name(task.patient_id))
 
     def document_tasks(
         self,

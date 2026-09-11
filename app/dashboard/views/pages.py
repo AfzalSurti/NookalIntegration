@@ -909,12 +909,73 @@ async def approvals_page(
     container: Annotated[DashboardContainer, Depends(get_container)],
     svc: Annotated[ApprovalService, Depends(approval_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
+    status: str | None = None,
+    task_type: str | None = None,
 ) -> HTMLResponse:
+    clean_status = status.strip().lower() if status and status.strip() else None
+    clean_type = task_type.strip() if task_type and task_type.strip() else None
+    pending_only = clean_status in (None, "pending")
+    status_filter = None if clean_status in (None, "all", "pending") else clean_status
+
     tasks = svc.list_tasks(
         actor=user.user_id,
         role=user.role,
         correlation_id=correlation_id,
+        status=status_filter,
+        task_type=clean_type,
+        pending_only=pending_only,
     )
+
+    # Fetch Nookal patient details for all distinct patients in tasks
+    patient_info: dict[str, dict[str, Any]] = {}
+    for t in tasks:
+        pid = t.patient_id
+        if pid and pid not in patient_info:
+            info = {
+                "id": pid,
+                "name": t.patient_name or pid,
+                "email": None,
+                "phone": None,
+                "dob": None,
+                "suburb": None,
+                "status": None,
+                "found": False,
+            }
+            if hasattr(container, "nookal") and hasattr(container.nookal, "get_patient"):
+                try:
+                    pat = container.nookal.get_patient(pid)
+                    if pat:
+                        fname = getattr(pat, "first_name", "") or ""
+                        lname = getattr(pat, "last_name", "") or ""
+                        full_name = f"{fname} {lname}".strip() or pid
+                        info.update({
+                            "name": full_name,
+                            "first_name": fname,
+                            "last_name": lname,
+                            "email": getattr(pat, "email", None),
+                            "phone": getattr(pat, "mobile", None) or getattr(pat, "phone", None),
+                            "dob": getattr(pat, "dob", None),
+                            "suburb": getattr(pat, "suburb", None),
+                            "status": getattr(pat, "status", None),
+                            "found": True,
+                        })
+                except Exception:
+                    pass
+            patient_info[pid] = info
+
+    # Total pending count for topbar indicator
+    try:
+        pending_tasks = svc.list_tasks(
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+            pending_only=True,
+            audit_list=False,
+        )
+        total_pending = len(pending_tasks)
+    except Exception:
+        total_pending = len(tasks)
+
     return _templates(request).TemplateResponse(
         request,
         name="approvals.html",
@@ -922,9 +983,13 @@ async def approvals_page(
             request,
             user,
             session,
-            pending=len(tasks),
+            pending=total_pending,
             extra={
                 "tasks": tasks,
+                "patient_info": patient_info,
+                "selected_status": clean_status or "pending",
+                "selected_type": clean_type or "",
+                "total_pending": total_pending,
                 "can_approve": _can(container, user.role, Permission.APPROVAL_APPROVE),
                 "can_reject": _can(container, user.role, Permission.APPROVAL_REJECT),
             },
@@ -963,6 +1028,38 @@ async def documents_page(
             patient_files = []
             files_error = "Unable to load patient files from Nookal at this time."
 
+    # Fetch Nookal patient details for clinical documents queue
+    patient_info: dict[str, dict[str, Any]] = {}
+    for t in tasks:
+        pid = t.patient_id
+        if pid and pid not in patient_info:
+            info = {
+                "id": pid,
+                "name": t.patient_name or pid,
+                "email": None,
+                "phone": None,
+                "dob": None,
+                "suburb": None,
+                "found": False,
+            }
+            if hasattr(container, "nookal") and hasattr(container.nookal, "get_patient"):
+                try:
+                    pat = container.nookal.get_patient(pid)
+                    if pat:
+                        fname = getattr(pat, "first_name", "") or ""
+                        lname = getattr(pat, "last_name", "") or ""
+                        info.update({
+                            "name": f"{fname} {lname}".strip() or pid,
+                            "email": getattr(pat, "email", None),
+                            "phone": getattr(pat, "mobile", None) or getattr(pat, "phone", None),
+                            "dob": getattr(pat, "dob", None),
+                            "suburb": getattr(pat, "suburb", None),
+                            "found": True,
+                        })
+                except Exception:
+                    pass
+            patient_info[pid] = info
+
     return _templates(request).TemplateResponse(
         request,
         name="documents.html",
@@ -972,6 +1069,7 @@ async def documents_page(
             session,
             extra={
                 "tasks": tasks,
+                "patient_info": patient_info,
                 "can_approve": _can(container, user.role, Permission.APPROVAL_APPROVE),
                 "can_reject": _can(container, user.role, Permission.APPROVAL_REJECT),
                 "patient_id_filter": clean_patient or "",

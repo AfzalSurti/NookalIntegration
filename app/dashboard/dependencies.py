@@ -120,7 +120,7 @@ def patient_service(container: Annotated[DashboardContainer, Depends(get_contain
 
 
 def approval_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> ApprovalService:
-    return ApprovalService(approval=container.approval, audit=container.audit)
+    return ApprovalService(approval=container.approval, audit=container.audit, nookal=container.nookal)
 
 
 def referrer_service(container: Annotated[DashboardContainer, Depends(get_container)]) -> ReferrerConflictService:
