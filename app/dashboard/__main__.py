@@ -64,6 +64,7 @@ def build_offline_container() -> DashboardContainer:
         ),
     )
 
+        users = []
     users_file = os.environ.get("DASHBOARD_USERS_FILE", "").strip()
     if users_file and Path(users_file).exists():
         import json
