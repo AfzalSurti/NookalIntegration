@@ -3,13 +3,14 @@ from app.dashboard.api import (
     appointments,
     audit,
     auth,
+    cases,
+    communication,
     documents,
+    finance,
     marketing,
     patients,
     referrers,
     system,
-    finance,
-    cases,
 )
 
 __all__ = [
@@ -17,11 +18,13 @@ __all__ = [
     "appointments",
     "audit",
     "auth",
+    "cases",
+    "communication",
     "documents",
+    "finance",
     "marketing",
     "patients",
     "referrers",
     "system",
-    "finance",
-    "cases",
 ]
+

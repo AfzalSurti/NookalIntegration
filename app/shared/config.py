@@ -74,6 +74,13 @@ class ApprovalConfig:
 
 
 @dataclass(frozen=True)
+class CommunicationConfig:
+    nookal_sms_enabled: bool = True
+    nookal_email_enabled: bool = True
+    app_reminders_enabled: bool = False
+
+
+@dataclass(frozen=True)
 class AuditConfig:
     max_metadata_value_length: int
     forbidden_metadata_keys: frozenset[str]
@@ -87,7 +94,9 @@ class Settings:
     messaging: MessagingConfig
     approval: ApprovalConfig
     audit: AuditConfig
-    raw: dict[str, Any] = field(repr=False)
+    communication: CommunicationConfig = field(default_factory=CommunicationConfig)
+    raw: dict[str, Any] = field(repr=False, default_factory=dict)
+
 
 
 def _resolve(base: Path, value: str | Path) -> Path:
@@ -134,6 +143,7 @@ def get_settings(
     llm_raw = raw.get("llm") or {}
     msg_raw = raw.get("messaging") or {}
     approval_raw = raw.get("approval") or {}
+    comm_raw = raw.get("communication") or {}
     audit_raw = raw.get("audit") or {}
 
     paths = PathsConfig(
@@ -205,6 +215,12 @@ def get_settings(
         store_path=_resolve(home, approval_raw.get("store_path", "data/working/tasks.jsonl")),
     )
 
+    communication = CommunicationConfig(
+        nookal_sms_enabled=bool(comm_raw.get("nookal_sms_enabled", True)),
+        nookal_email_enabled=bool(comm_raw.get("nookal_email_enabled", True)),
+        app_reminders_enabled=bool(comm_raw.get("app_reminders_enabled", False)),
+    )
+
     forbidden = audit_raw.get("forbidden_metadata_keys") or []
     audit = AuditConfig(
         max_metadata_value_length=int(audit_raw.get("max_metadata_value_length", 200)),
@@ -217,6 +233,7 @@ def get_settings(
         llm=llm,
         messaging=messaging,
         approval=approval,
+        communication=communication,
         audit=audit,
         raw=raw,
     )

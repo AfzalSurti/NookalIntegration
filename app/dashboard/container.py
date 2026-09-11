@@ -60,6 +60,7 @@ class DashboardContainer:
     finance_register: Any | None = None
     case_tracking: Any | None = None
     referral_association_store: Any | None = None
+    communication_config: Any | None = None  # NookalCommunicationConfig for Section 4.6
     session_cookie_name: str = "bte_session"
     csrf_header_name: str = "X-CSRF-Token"
 

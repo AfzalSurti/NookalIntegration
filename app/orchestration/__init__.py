@@ -16,6 +16,11 @@ from app.orchestration.appointment_commands import (
 from app.orchestration.appointment_reminders import AppointmentRemindersWorkflow
 from app.orchestration.base import BaseWorkflow
 from app.orchestration.certificates import CertificateRequestWorkflow
+from app.orchestration.communication import (
+    CheckAppointmentCommunicationWorkflow,
+    CheckCommunicationConfigWorkflow,
+    CheckPatientReadinessWorkflow,
+)
 from app.orchestration.context import WorkflowContext
 from app.orchestration.correlation import new_correlation_id
 from app.orchestration.errors import WorkflowExecutionError
@@ -28,7 +33,10 @@ __all__ = [
     "BaseWorkflow",
     "CancelAppointmentWorkflow",
     "CertificateRequestWorkflow",
+    "CheckAppointmentCommunicationWorkflow",
     "CheckAppointmentWorkflow",
+    "CheckCommunicationConfigWorkflow",
+    "CheckPatientReadinessWorkflow",
     "CreateAppointmentWorkflow",
     "ReferralThankYouWorkflow",
     "ReferrerConflictStore",
@@ -42,3 +50,4 @@ __all__ = [
     "WorkflowStatus",
     "new_correlation_id",
 ]
+

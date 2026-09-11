@@ -36,6 +36,14 @@ messaging:
     email: false
   max_retries: 3
 
+# Section 4.6: Nookal-native SMS + email communication.
+# All appointment SMS/email is handled by Nookal's native automation.
+# Configure campaigns in Nookal: Manage > Communications.
+communication:
+  nookal_sms_enabled: true       # Practice has Nookal SMS configured
+  nookal_email_enabled: true     # Practice has Nookal email configured
+  app_reminders_enabled: false   # Defer to Nookal native reminders (prevent duplicates)
+
 approval:
   store_path: data/working/tasks.jsonl
 

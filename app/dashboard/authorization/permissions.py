@@ -23,3 +23,5 @@ class Permission(StrEnum):
     EXPENSE_REVIEW = "expense:review"
     CASE_VIEW = "case:view"
     CASE_ACKNOWLEDGE = "case:acknowledge"
+    COMMUNICATION_VIEW = "communication:view"
+    COMMUNICATION_MANAGE = "communication:manage"

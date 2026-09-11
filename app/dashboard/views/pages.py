@@ -30,6 +30,7 @@ from app.dashboard.dependencies import (
     system_service,
     treatment_note_service,
     review_service,
+    communication_service,
 )
 from app.dashboard.services import (
     ApprovalService,
@@ -44,6 +45,7 @@ from app.dashboard.services import (
     SystemService,
     TreatmentNoteService,
     ReviewService,
+    CommunicationDashboardService,
 )
 
 router = APIRouter(tags=["views"])
@@ -152,19 +154,14 @@ async def logout_page(
 @router.get("/", response_model=None)
 async def overview(
     request: Request,
+    user: Annotated[User, Depends(require_user)],
     session: Annotated[Session | None, Depends(get_session)],
     container: Annotated[DashboardContainer, Depends(get_container)],
     sys_svc: Annotated[SystemService, Depends(system_service)],
     appt_svc: Annotated[AppointmentService, Depends(appointment_service)],
     appr_svc: Annotated[ApprovalService, Depends(approval_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
-) -> HTMLResponse | RedirectResponse:
-    # Redirect unauthenticated users to the login page
-    if session is None:
-        return RedirectResponse("/login", status_code=303)
-    user = container.auth_backend.get_user(session.user_id)
-    if user is None:
-        return RedirectResponse("/login", status_code=303)
+) -> HTMLResponse:
 
     status = sys_svc.status(actor=user.user_id, role=user.role, correlation_id=correlation_id)
     upcoming = appt_svc.list_upcoming(
@@ -1230,3 +1227,32 @@ async def system_page(
             },
         ),
     )
+
+
+@router.get("/communication", response_class=HTMLResponse)
+async def communication_page(
+    request: Request,
+    user: Annotated[User, Depends(require_permission(Permission.COMMUNICATION_VIEW))],
+    session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
+    comm_svc: Annotated[CommunicationDashboardService, Depends(communication_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
+) -> HTMLResponse:
+    overview = comm_svc.get_overview(actor=user.user_id, role=user.role, correlation_id=correlation_id)
+    workflows = comm_svc.get_workflows(actor=user.user_id, role=user.role, correlation_id=correlation_id)
+    can_manage = _can(container, user.role, Permission.COMMUNICATION_MANAGE)
+    return _templates(request).TemplateResponse(
+        request,
+        name="communication.html",
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            extra={
+                "overview": overview,
+                "workflows": workflows,
+                "can_manage": can_manage,
+            },
+        ),
+    )
+

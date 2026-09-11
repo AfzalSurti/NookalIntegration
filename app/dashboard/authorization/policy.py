@@ -15,6 +15,7 @@ _STAFF: frozenset[Permission] = frozenset(
         Permission.SYSTEM_VIEW,
         Permission.DOCUMENT_REVIEW,
         Permission.EXPENSE_REVIEW,
+        Permission.COMMUNICATION_VIEW,
     }
 )
 
@@ -35,6 +36,7 @@ _ADMIN: frozenset[Permission] = _PRACTITIONER | frozenset(
         Permission.AUDIT_VIEW,
         Permission.MARKETING_MANAGE,
         Permission.SYSTEM_KILL_SWITCH,
+        Permission.COMMUNICATION_MANAGE,
     }
 )
 

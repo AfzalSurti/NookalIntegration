@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Communication Automation — Back to Ease{% endblock %}
+{% block topbar_title %}Communication (SMS & Email){% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+    <div>
+      <h1 class="page-title">Communication Automation</h1>
+      <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: var(--sp-1);">
+        Nookal-native SMS &amp; Email integration status, duplicate prevention safeguards, and patient readiness verification.
+      </p>
+    </div>
+    <div class="btn-group">
+      <span class="badge badge-success" style="font-size: 0.8rem; padding: 6px 12px;">
+        ● Nookal-Native Only
+      </span>
+      {% if can_manage %}
+      <span class="badge badge-info" style="font-size: 0.8rem; padding: 6px 12px;">
+        Admin / Owner Access
+      </span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Overview Cards -->
+<div class="card-grid" style="margin-bottom: var(--sp-6);">
+  <div class="card">
+    <div class="card-title" style="margin-bottom: var(--sp-2);">Nookal-Native SMS</div>
+    <div style="font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: var(--sp-2);">
+      {% if overview.nookal_sms.enabled %}
+        <span style="color: var(--success);">●</span> Configured &amp; Active
+      {% else %}
+        <span style="color: var(--text-muted);">○</span> Disabled
+      {% endif %}
+    </div>
+    <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: var(--sp-2);">
+      Sender: <strong>{{ overview.nookal_sms.sender_number or "Clinic Patient-Facing Number" }}</strong>
+    </div>
+    <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">
+      Configured directly in Nookal PMS settings
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom: var(--sp-2);">Nookal-Native Email</div>
+    <div style="font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: var(--sp-2);">
+      {% if overview.nookal_email.enabled %}
+        <span style="color: var(--success);">●</span> Configured &amp; Active
+      {% else %}
+        <span style="color: var(--text-muted);">○</span> Disabled
+      {% endif %}
+    </div>
+    <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: var(--sp-2);">
+      Sender: <strong>{{ overview.nookal_email.sender_email or "Clinic Verified Domain" }}</strong>
+    </div>
+    <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">
+      Native templates and practitioner signatures
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom: var(--sp-2);">Duplicate Prevention</div>
+    <div style="font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: var(--sp-2);">
+      {% if not overview.app_reminders_enabled %}
+        <span style="color: var(--success);">🛡</span> Enforced (Nookal Native Primary)
+      {% else %}
+        <span style="color: var(--warning);">⚠</span> Application Overrides Active
+      {% endif %}
+    </div>
+    <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: var(--sp-2);">
+      App reminder workflow: <strong>{{ "Deferred to Nookal" if not overview.app_reminders_enabled else "Active (App)" }}</strong>
+    </div>
+    <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">
+      Prevents patients receiving double reminders
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom: var(--sp-2);">Third-Party Gateways</div>
+    <div style="font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: var(--sp-2);">
+      <span style="color: var(--brand);">✓</span> Strictly Zero Third-Party
+    </div>
+    <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: var(--sp-2);">
+      Twilio / SendGrid: <strong>Not Used</strong>
+    </div>
+    <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">
+      Complies with contractual Section 4.6 mandate
+    </div>
+  </div>
+</div>
+
+<!-- Workflow Capability Matrix -->
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="flex-between" style="margin-bottom: var(--sp-4);">
+    <div>
+      <h2 style="font-size: 1.1rem; font-weight: 700; margin: 0;">Communication Capability Matrix</h2>
+      <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 4px;">
+        Responsibility allocation across clinical appointment and marketing messaging workflows.
+      </p>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Workflow</th>
+          <th>Channel</th>
+          <th>Primary Owner</th>
+          <th>Status</th>
+          <th>Implementation Method &amp; Safeguards</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for wf in workflows %}
+        <tr>
+          <td style="font-weight: 600;">{{ wf.name }}</td>
+          <td>
+            <span class="badge {% if wf.channel == 'sms' %}badge-info{% elif wf.channel == 'email' %}badge-success{% else %}badge-neutral{% endif %}">
+              {{ wf.channel|upper }}
+            </span>
+          </td>
+          <td>
+            {% if wf.owner == 'nookal_native' %}
+              <span style="font-weight: 600; color: var(--brand);">Nookal Native</span>
+            {% elif wf.owner == 'application' %}
+              <span style="font-weight: 600; color: var(--warning);">Application</span>
+            {% else %}
+              <span style="color: var(--text-muted);">Out of Scope</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if wf.status == 'active' %}
+              <span class="badge badge-success">Active</span>
+            {% elif wf.status == 'deferred_to_nookal' %}
+              <span class="badge badge-info">Deferred to Nookal</span>
+            {% elif wf.status == 'disabled' %}
+              <span class="badge badge-neutral">Disabled</span>
+            {% else %}
+              <span class="badge badge-warning">{{ wf.status }}</span>
+            {% endif %}
+          </td>
+          <td style="font-size: 0.85rem; color: var(--text-secondary);">
+            {{ wf.description }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Patient Communication Readiness Checker -->
+<div class="card" style="margin-bottom: var(--sp-6);">
+  <div class="card-title" style="margin-bottom: var(--sp-2);">Patient Communication Readiness Lookup</div>
+  <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: var(--sp-4);">
+    Verify whether an individual patient is eligible to receive Nookal-native SMS or Email communications.
+  </p>
+  
+  <div class="flex gap-3" style="max-width: 500px; margin-bottom: var(--sp-4);">
+    <input type="text" id="patientLookupInput" placeholder="Enter Patient ID (e.g. pat_101 or 101)" class="form-input" style="flex: 1;">
+    <button class="btn btn-primary" onclick="checkPatientReadiness()">Check Readiness</button>
+  </div>
+
+  <div id="readinessResult" style="display: none; padding: var(--sp-4); background: var(--bg); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+    <div id="readinessContent"></div>
+  </div>
+</div>
+
+<!-- Governance and Role-Based Controls -->
+<div class="card">
+  <div class="card-title" style="margin-bottom: var(--sp-2);">Section 4.6 Governance &amp; RBAC Summary</div>
+  <div style="font-size: 0.9rem; line-height: 1.6; color: var(--text-secondary);">
+    <p>
+      • <strong>Native Template &amp; Signature Management:</strong> Templates and signatures are maintained within Nookal's official template editor under <em>Settings &gt; Practice Admin &gt; Communication Templates</em>.
+    </p>
+    <p>
+      • <strong>Role-Based Access:</strong> Staff and Practitioners have read-only visibility into communication delivery and readiness. Only Administrators and Practice Owners have permissions to modify workflow bindings or override delivery settings.
+    </p>
+    <p>
+      • <strong>Existing Patient-Facing Number:</strong> Nookal PMS SMS sender ID is linked to the clinic's approved mobile/landline number, ensuring seamless patient recognition without new unfamiliar sender numbers.
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function checkPatientReadiness() {
+  const input = document.getElementById('patientLookupInput').value.trim();
+  if (!input) return;
+  const resultDiv = document.getElementById('readinessResult');
+  const contentDiv = document.getElementById('readinessContent');
+  
+  resultDiv.style.display = 'block';
+  contentDiv.innerHTML = '<span class="spinner"></span> Checking communication readiness...';
+  
+  apiCall('GET', '/api/communication/patient/' + encodeURIComponent(input) + '/readiness')
+    .then(data => {
+      if (data.error) {
+        contentDiv.innerHTML = '<div style="color: var(--error);"><strong>Error:</strong> ' + data.error + '</div>';
+        return;
+      }
+      contentDiv.innerHTML = `
+        <div style="font-weight: 600; font-size: 1rem; margin-bottom: 8px;">Patient: ${data.patient_id}</div>
+        <div class="card-grid" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div style="padding: 10px; background: var(--surface); border-radius: 4px; border: 1px solid var(--border);">
+            <div style="font-size: 0.8rem; color: var(--text-muted);">SMS Readiness</div>
+            <div style="font-size: 1rem; font-weight: 600; margin-top: 4px;">
+              ${data.sms_ready ? '<span style="color: var(--success);">● Eligible for SMS</span>' : '<span style="color: var(--error);">○ Ineligible (Missing/invalid phone)</span>'}
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Status: ${data.sms_status}</div>
+          </div>
+          <div style="padding: 10px; background: var(--surface); border-radius: 4px; border: 1px solid var(--border);">
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Email Readiness</div>
+            <div style="font-size: 1rem; font-weight: 600; margin-top: 4px;">
+              ${data.email_ready ? '<span style="color: var(--success);">● Eligible for Email</span>' : '<span style="color: var(--error);">○ Ineligible (Missing/invalid email)</span>'}
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Status: ${data.email_status}</div>
+          </div>
+        </div>
+      `;
+    })
+    .catch(err => {
+      contentDiv.innerHTML = '<div style="color: var(--error);"><strong>Failed to load patient readiness:</strong> ' + (err.detail || JSON.stringify(err)) + '</div>';
+    });
+}
+</script>
+{% endblock %}

@@ -1,5 +1,9 @@
 """
-Scheduled appointment reminders — fixed template, no LLM.
+Scheduled appointment reminders â€” fixed template, no LLM.
+
+Section 4.6 refactor: checks whether Nookal handles reminders natively.
+If Nookal native reminders are configured (default), the workflow defers
+to Nookal rather than sending a duplicate application-side reminder.
 
 Idempotency key: appt_{appointment_id}_reminder_{YYYY-MM-DD}
 """
@@ -8,6 +12,14 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any, ClassVar
 
+from app.communication import (
+    CommunicationOwnership,
+    CommunicationService,
+    CommunicationStatus,
+    CommunicationWorkflowType,
+    NookalCommunicationConfig,
+)
+from app.communication.nookal_native import appointment_should_skip_app_reminder
 from app.messaging import Channel
 from app.nookal_client import Appointment, PatientRef
 from app.orchestration.base import BaseWorkflow
@@ -53,7 +65,10 @@ class AppointmentRemindersWorkflow(BaseWorkflow):
     ) -> WorkflowResult:
         """
         Send reminders for appointments on reminder_date (default: tomorrow vs clock).
-        Processes each appointment independently — one failure does not stop others.
+
+        Section 4.6: If Nookal native reminders are configured, this workflow
+        defers to Nookal rather than sending application-side duplicates.
+        Processes each appointment independently â€” one failure does not stop others.
         """
         target_day = reminder_date or (ctx.clock.now().date() + timedelta(days=1))
         ctx.audit_event(
@@ -61,6 +76,58 @@ class AppointmentRemindersWorkflow(BaseWorkflow):
             metadata={"reminder_date": target_day.isoformat(), "channel": channel},
         )
 
+        # --- Section 4.6 duplicate prevention ---
+        # Nookal natively handles SMS and Email reminders.
+        # If channel is SMS or Email, defer to Nookal native unless app_reminders_enabled is True.
+        # If channel is WhatsApp (non-native / application channel), proceed with app reminders.
+        # Callers can also explicitly set app_reminders_enabled in extra parameters.
+        try:
+            settings = get_settings()
+            comm_config = NookalCommunicationConfig(
+                nookal_sms_enabled=settings.communication.nookal_sms_enabled,
+                nookal_email_enabled=settings.communication.nookal_email_enabled,
+                app_reminders_enabled=_extra.get(
+                    "app_reminders_enabled",
+                    settings.communication.app_reminders_enabled,
+                ),
+            )
+        except Exception:
+            comm_config = NookalCommunicationConfig(
+                app_reminders_enabled=_extra.get("app_reminders_enabled", False),
+            )
+
+        comm_service = CommunicationService(nookal=ctx.nookal, config=comm_config)
+
+        # Native channels defer to Nookal when app_reminders_enabled is False
+        channel_is_native = channel in ("sms", "email")
+        should_defer = channel_is_native and not comm_config.app_reminders_enabled
+
+        if should_defer:
+            ctx.audit_event(
+                "appointment_reminders.nookal_native_deferred",
+                metadata={
+                    "reminder_date": target_day.isoformat(),
+                    "channel": channel,
+                    "ownership": CommunicationOwnership.NOOKAL_NATIVE_CONFIG_ONLY.value,
+                    "reason": "nookal_handles_reminders_natively",
+                },
+            )
+            return WorkflowResult.skipped(
+                self.name,
+                ctx.correlation_id,
+                data={
+                    "reminder_date": target_day.isoformat(),
+                    "items": [],
+                    "sent": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                    "blocked": 0,
+                    "nookal_native_deferred": True,
+                    "ownership": CommunicationOwnership.NOOKAL_NATIVE_CONFIG_ONLY.value,
+                },
+            )
+
+        # --- Application-controlled reminders (only when explicitly enabled) ---
         appointments = ctx.nookal.list_appointments(on_date=target_day)
         eligible = [
             a
@@ -159,6 +226,17 @@ class AppointmentRemindersWorkflow(BaseWorkflow):
             "patient_id": appt.patient_id,
             "idempotency_key": key,
         }
+
+        # Section 4.6: skip if Nookal already sent a reminder for this appointment
+        if appointment_should_skip_app_reminder(appt):
+            ctx.audit_event(
+                "appointment_reminders.nookal_already_handled",
+                target_type="appointment",
+                target_id=appt.appointment_id,
+                result="success",
+                metadata={"idempotency_key": key, "email_reminder_sent": appt.email_reminder_sent},
+            )
+            return {**base, "outcome": "skipped", "code": "nookal_already_handled"}
 
         try:
             patient = ctx.nookal.get_patient(appt.patient_id)
@@ -294,3 +372,4 @@ class AppointmentRemindersWorkflow(BaseWorkflow):
         if channel == "email":
             return patient.email or None
         return None
+

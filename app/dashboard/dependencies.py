@@ -235,3 +235,15 @@ def referral_sync_service(container: Annotated[DashboardContainer, Depends(get_c
         clock=container.clock,
     )
 
+
+def communication_service(
+    container: Annotated[DashboardContainer, Depends(get_container)],
+) -> "CommunicationDashboardService":
+    from app.dashboard.services.communication import CommunicationDashboardService
+    config = getattr(container, "communication_config", None)
+    return CommunicationDashboardService(
+        nookal=container.nookal,
+        audit=container.audit,
+        config=config,
+    )
+
