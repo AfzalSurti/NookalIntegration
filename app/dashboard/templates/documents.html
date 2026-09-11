@@ -3,11 +3,18 @@
 {% block topbar_title %}Clinical Documents{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="flex gap-3" style="align-items: center; flex-wrap: wrap;">
-    <h1 class="page-title">Document Review Queue</h1>
-    <span class="badge {% if tasks|length > 0 %}badge-warning{% else %}badge-success{% endif %}">
-      {{ tasks|length }} pending review
-    </span>
+  <div class="flex gap-3" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+    <div class="flex gap-3" style="align-items: center;">
+      <h1 class="page-title">Document Review Queue</h1>
+      <span class="badge {% if tasks|length > 0 %}badge-warning{% else %}badge-success{% endif %}">
+        {{ tasks|length }} pending review
+      </span>
+    </div>
+    <div>
+      <button type="button" class="btn btn-primary btn-sm" onclick="openCreateDocModal()">
+        + New Letter / Certificate
+      </button>
+    </div>
   </div>
 </div>
 
@@ -254,5 +261,94 @@ function submitDocApproval(e) {
       errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Action failed.';
     });
 }
+
+function openCreateDocModal() {
+  document.getElementById('create-doc-error').style.display = 'none';
+  document.getElementById('create-doc-form').reset();
+  toggleCertType();
+  openModal('create-doc-modal');
+}
+
+function toggleCertType() {
+  const docType = document.getElementById('new-doc-type').value;
+  const certGroup = document.getElementById('new-cert-type-group');
+  certGroup.style.display = (docType === 'certificate') ? 'block' : 'none';
+}
+
+function submitCreateDoc(e) {
+  e.preventDefault();
+  const patientId = document.getElementById('new-doc-patient-id').value.trim();
+  const docType = document.getElementById('new-doc-type').value;
+  const certType = (docType === 'certificate') ? document.getElementById('new-cert-type').value : null;
+  const notes = document.getElementById('new-doc-notes').value.trim() || null;
+
+  const errorDiv = document.getElementById('create-doc-error');
+  errorDiv.style.display = 'none';
+
+  const btn = document.getElementById('create-doc-btn');
+  btn.disabled = true;
+  btn.textContent = 'Generating Draft...';
+
+  apiCall('POST', '/api/documents/request', {
+    patient_id: patientId,
+    document_type: docType,
+    certificate_type: certType,
+    notes: notes,
+  })
+    .then(() => {
+      closeModal('create-doc-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Generate Draft';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to generate document draft.';
+    });
+}
 </script>
+
+<!-- Modal: Create Document / Letter -->
+<div class="modal-backdrop" id="create-doc-modal">
+  <div class="modal" style="max-width: 520px;">
+    <div class="modal-header">
+      <div class="modal-title">Draft New Clinical Document</div>
+      <button class="modal-close" onclick="closeModal('create-doc-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="create-doc-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="create-doc-form" onsubmit="submitCreateDoc(event)">
+        <div class="form-group" style="margin-bottom: var(--sp-3);">
+          <label class="form-label" for="new-doc-patient-id" style="font-weight: 600; font-size: 0.85rem;">Patient ID</label>
+          <input type="text" id="new-doc-patient-id" class="form-control" placeholder="e.g. pat_1001" style="width: 100%; padding: 8px 12px; font-size: 0.9rem;" required>
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-3);">
+          <label class="form-label" for="new-doc-type" style="font-weight: 600; font-size: 0.85rem;">Document Type</label>
+          <select id="new-doc-type" class="form-control" style="width: 100%; padding: 8px 12px; font-size: 0.9rem;" onchange="toggleCertType()">
+            <option value="certificate">Medical Certificate</option>
+            <option value="referral_thank_you">Referral Thank-You Letter</option>
+            <option value="treatment_completion">Treatment Completion Letter</option>
+            <option value="progress_letter">Treatment Progress Letter</option>
+          </select>
+        </div>
+        <div class="form-group" id="new-cert-type-group" style="margin-bottom: var(--sp-3);">
+          <label class="form-label" for="new-cert-type" style="font-weight: 600; font-size: 0.85rem;">Certificate Subtype</label>
+          <select id="new-cert-type" class="form-control" style="width: 100%; padding: 8px 12px; font-size: 0.9rem;">
+            <option value="attendance">Attendance Certificate</option>
+            <option value="medical">Medical Certificate</option>
+            <option value="fit_to_work">Fitness for Work Certificate</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label class="form-label" for="new-doc-notes" style="font-weight: 600; font-size: 0.85rem;">Clinical Notes / Statement (Optional)</label>
+          <textarea id="new-doc-notes" class="form-control" rows="3" style="width: 100%; padding: 8px 12px; font-size: 0.9rem;" placeholder="Add specific notes or statement for the letter/certificate..."></textarea>
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-4); display: flex; justify-content: flex-end; gap: var(--sp-2);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('create-doc-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="create-doc-btn">Generate Draft</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}

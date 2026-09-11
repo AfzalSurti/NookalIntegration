@@ -202,8 +202,9 @@
 </div>
 
 <div class="card">
-  <div class="card-header">
+  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
     <div class="card-title">Associated Documents ({{ patient.documents|length }})</div>
+    <button type="button" class="btn btn-primary btn-sm" onclick="openPatientDocModal()">+ New Document</button>
   </div>
   <div class="table-wrapper">
     <table>
@@ -213,20 +214,20 @@
           <th>Title</th>
           <th>Template</th>
           <th>Status</th>
-          <th style="text-align: right;">Review Action</th>
+          <th style="text-align: right;">Action</th>
         </tr>
       </thead>
       <tbody>
       {% for d in patient.documents %}
         <tr>
-          <td><code>{{ d.document_id }}</code></td>
-          <td><strong>{{ d.title or "Untitled Document" }}</strong></td>
-          <td>{{ d.template_id or "—" }}</td>
+          <td><code>{{ d.document_id[:8] }}…</code></td>
+          <td><strong>{{ d.title or "Clinical Document" }}</strong></td>
+          <td><span class="badge badge-neutral">{{ d.template_id or "Standard" }}</span></td>
           <td>
-            {% if d.status == "approved" %}
-              <span class="badge badge-success">Approved</span>
+            {% if d.status in ("approved", "rendered", "stored", "delivered") %}
+              <span class="badge badge-success">{{ d.status|capitalize }}</span>
             {% elif d.status == "pending" %}
-              <span class="badge badge-warning">Pending</span>
+              <span class="badge badge-warning">Pending Review</span>
             {% elif d.status == "rejected" %}
               <span class="badge badge-error">Rejected</span>
             {% else %}
@@ -234,11 +235,14 @@
             {% endif %}
           </td>
           <td style="text-align: right;">
-            {% if d.task_id %}
-              <a href="/approvals" class="btn btn-secondary btn-sm">Review in Queue</a>
-            {% else %}
-              <span style="color: var(--text-muted); font-size: 0.85rem;">—</span>
-            {% endif %}
+            <div class="flex gap-2" style="justify-content: flex-end;">
+              {% if d.status in ("approved", "rendered", "stored", "delivered") %}
+                <a href="/documents/{{ d.document_id }}/pdf" target="_blank" class="btn btn-primary btn-xs">📄 View PDF</a>
+              {% endif %}
+              {% if d.task_id and d.status == "pending" %}
+                <a href="/approvals" class="btn btn-secondary btn-xs">Review in Queue</a>
+              {% endif %}
+            </div>
           </td>
         </tr>
       {% else %}
@@ -246,7 +250,7 @@
           <td colspan="5">
             <div class="empty-state">
               <div class="empty-state-title">No associated documents</div>
-              <div class="empty-state-text">No clinical letters or documents on file for this patient.</div>
+              <div class="empty-state-text">No clinical letters or certificates on file for this patient.</div>
             </div>
           </td>
         </tr>
@@ -578,6 +582,46 @@
     </div>
   </div>
 </div>
+
+<!-- Modal: Create Document for Patient -->
+<div class="modal-backdrop" id="create-patient-doc-modal">
+  <div class="modal" style="max-width: 520px;">
+    <div class="modal-header">
+      <div class="modal-title">Draft Document for {{ patient.display_name or ("Patient #" ~ patient.patient_id) }}</div>
+      <button class="modal-close" onclick="closeModal('create-patient-doc-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="patient-doc-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
+      <form id="create-patient-doc-form" onsubmit="submitPatientDoc(event)">
+        <div class="form-group" style="margin-bottom: var(--sp-3);">
+          <label class="form-label" for="pt-doc-type" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; display: block;">Document Type</label>
+          <select id="pt-doc-type" class="form-control" style="width: 100%; padding: 8px 12px; font-size: 0.9rem;" onchange="togglePatientCertType()">
+            <option value="certificate">Medical Certificate</option>
+            <option value="referral_thank_you">Referral Thank-You Letter</option>
+            <option value="treatment_completion">Treatment Completion Letter</option>
+            <option value="progress_letter">Treatment Progress Letter</option>
+          </select>
+        </div>
+        <div class="form-group" id="pt-cert-type-group" style="margin-bottom: var(--sp-3);">
+          <label class="form-label" for="pt-cert-type" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; display: block;">Certificate Subtype</label>
+          <select id="pt-cert-type" class="form-control" style="width: 100%; padding: 8px 12px; font-size: 0.9rem;">
+            <option value="attendance">Attendance Certificate</option>
+            <option value="medical">Medical Certificate</option>
+            <option value="fit_to_work">Fitness for Work Certificate</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label class="form-label" for="pt-doc-notes" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; display: block;">Clinical Notes / Statement (Optional)</label>
+          <textarea id="pt-doc-notes" class="form-control" rows="3" style="width: 100%; padding: 8px 12px; font-size: 0.9rem;" placeholder="Add specific notes or statement for the letter/certificate..."></textarea>
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-4); display: flex; justify-content: flex-end; gap: var(--sp-2);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('create-patient-doc-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="pt-doc-btn">Generate Draft</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -741,6 +785,50 @@ async function handleSendMessageSubmit(e) {
     spinner.style.display = 'none';
     submitBtn.disabled = false;
   }
+}
+
+function openPatientDocModal() {
+  document.getElementById('patient-doc-error').style.display = 'none';
+  document.getElementById('create-patient-doc-form').reset();
+  togglePatientCertType();
+  openModal('create-patient-doc-modal');
+}
+
+function togglePatientCertType() {
+  const docType = document.getElementById('pt-doc-type').value;
+  const certGroup = document.getElementById('pt-cert-type-group');
+  certGroup.style.display = (docType === 'certificate') ? 'block' : 'none';
+}
+
+function submitPatientDoc(e) {
+  e.preventDefault();
+  const docType = document.getElementById('pt-doc-type').value;
+  const certType = (docType === 'certificate') ? document.getElementById('pt-cert-type').value : null;
+  const notes = document.getElementById('pt-doc-notes').value.trim() || null;
+
+  const errorDiv = document.getElementById('patient-doc-error');
+  errorDiv.style.display = 'none';
+
+  const btn = document.getElementById('pt-doc-btn');
+  btn.disabled = true;
+  btn.textContent = 'Generating Draft...';
+
+  apiCall('POST', '/api/documents/request', {
+    patient_id: PATIENT_DATA.id,
+    document_type: docType,
+    certificate_type: certType,
+    notes: notes,
+  })
+    .then(() => {
+      closeModal('create-patient-doc-modal');
+      location.reload();
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Generate Draft';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to generate document draft.';
+    });
 }
 </script>
 {% endblock %}

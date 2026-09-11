@@ -7,7 +7,7 @@ from dataclasses import is_dataclass, replace
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app.dashboard.auth import Session, User
@@ -977,6 +977,27 @@ async def documents_page(
                 "files_error": files_error,
             },
         ),
+    )
+
+
+@router.get("/documents/{document_id}/pdf")
+async def document_pdf(
+    document_id: str,
+    user: Annotated[User, Depends(require_permission(Permission.DOCUMENT_REVIEW))],
+    container: Annotated[DashboardContainer, Depends(get_container)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
+) -> Response:
+    record = container.document_store.retrieve(document_id)
+    if not record:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="document_not_found")
+    content = container.document_store.get_content(document_id)
+    if not content:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="pdf_not_found")
+    filename = f"{record.template_id}_{record.patient_id}_{document_id[:8]}.pdf"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 

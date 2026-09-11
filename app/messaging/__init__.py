@@ -228,6 +228,11 @@ class MessagingService:
 
         body = self._templates.render(template_id, context)
         adapter = self._adapters.get(channel)
+        if adapter is None and isinstance(channel, str):
+            adapter = self._adapters.get(channel.lower().strip())
+        if adapter is None and channel in ("sms", "email"):
+            adapter = StubAdapter(channel)
+            self._adapters[channel] = adapter
         if adapter is None:
             raise MessagingError(f"no adapter for channel={channel}")
 

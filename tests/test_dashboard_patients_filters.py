@@ -214,3 +214,17 @@ def test_patients_page_search_query_handles_nookal_error_gracefully(
     assert "0 found" in html or "No matching patients found" in html
 
 
+def test_api_patients_search_with_query_and_deceased(client: TestClient, env) -> None:
+    """Verify /api/patients/search respects q and deceased parameters."""
+    csrf = env.login(client, "staff")
+    resp = client.get(
+        "/api/patients/search?q=Alex&deceased=0",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] >= 1
+    assert any("Alex" in item["display_name"] for item in data["items"])
+
+
+

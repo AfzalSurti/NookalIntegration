@@ -225,7 +225,7 @@ class ExpenseConfirmRequest(BaseModel):
 
 
 class SendMessageRequest(BaseModel):
-    channel: str = Field(pattern="^(sms|email|whatsapp)$")
+    channel: str = Field(pattern="(?i)^(sms|email|whatsapp)$")
     recipient_contact: str | None = None
     template_id: str = "direct_message"
     message: str | None = None
@@ -241,4 +241,12 @@ class SendMessageResponse(BaseModel):
     sent_at: str | None = None
     provider_ref: str | None = None
     idempotency_key: str
+
+
+class DocumentDraftRequest(BaseModel):
+    patient_id: str = Field(min_length=1)
+    document_type: str = Field(pattern="^(certificate|referral_thank_you|treatment_completion|progress_letter)$")
+    certificate_type: str | None = None
+    notes: str | None = None
+
 

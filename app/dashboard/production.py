@@ -33,6 +33,9 @@ from app.marketing import (
     UnavailableEmailAdapter,
 )
 from app.messaging import MessagingService, SentLog, TemplateStore
+from app.messaging.adapters.email import EmailAdapter
+from app.messaging.adapters.sms import SMSAdapter
+from app.messaging.adapters.stub import StubAdapter
 from app.messaging.adapters.whatsapp import WhatsAppAdapter
 from app.nookal_client import HttpNookalClient
 from app.orchestration.pending_actions import PendingActionStore
@@ -105,6 +108,16 @@ def build_production_container(
     )
     if whatsapp_configured:
         messaging_adapters["whatsapp"] = WhatsAppAdapter(cfg.messaging)
+
+    if cfg.messaging.sms_api_key and cfg.messaging.sms_base_url:
+        messaging_adapters["sms"] = SMSAdapter(cfg.messaging)
+    else:
+        messaging_adapters["sms"] = StubAdapter("sms")
+
+    if cfg.messaging.smtp_host:
+        messaging_adapters["email"] = EmailAdapter(cfg.messaging)
+    else:
+        messaging_adapters["email"] = StubAdapter("email")
 
     messaging = MessagingService(
         adapters=messaging_adapters,

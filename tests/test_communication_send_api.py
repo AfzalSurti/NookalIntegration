@@ -92,3 +92,39 @@ def test_send_patient_not_found_returns_404(client: TestClient) -> None:
         },
     )
     assert resp.status_code == 404
+
+
+def test_send_sms_uppercase_channel_and_adapter_fallback(client: TestClient, env) -> None:
+    # Clear out sms adapter to verify fallback works seamlessly without 'no adapter' error
+    if "sms" in env.container.messaging._adapters:
+        del env.container.messaging._adapters["sms"]
+
+    headers = _login(client, role="admin")
+    resp = client.post(
+        "/api/communication/patient/pat_1001/send",
+        headers=headers,
+        json={
+            "channel": "SMS",
+            "template_id": "direct_message",
+            "message": "Test uppercase channel",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["status"] == "sent"
+    assert data["channel"] == "sms"
+
+
+def test_patient_readiness_includes_contact_fields(client: TestClient) -> None:
+    headers = _login(client, role="staff")
+    resp = client.get(
+        "/api/communication/patient/pat_1001/readiness",
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "patient_name" in data
+    assert "phone" in data
+    assert "email" in data
+    assert data["patient_id"] == "pat_1001"
+

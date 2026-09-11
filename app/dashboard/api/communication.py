@@ -84,17 +84,22 @@ def send_patient_message(
     if patient is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"Patient {patient_id} not found")
 
-    contact = req.recipient_contact
+    req_channel = str(req.channel).lower().strip()
+    contact = (req.recipient_contact or "").strip()
     if not contact:
-        if req.channel == "email":
-            contact = patient.email
+        if req_channel == "email":
+            raw_email = patient.raw.get("Email") if isinstance(patient.raw, dict) else None
+            contact = patient.email or raw_email
         else:
-            contact = patient.phone
+            raw_phone = None
+            if isinstance(patient.raw, dict):
+                raw_phone = patient.raw.get("Mobile") or patient.raw.get("Telephone") or patient.raw.get("phone")
+            contact = patient.phone or raw_phone
 
     if not contact:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail=f"Patient has no registered {req.channel} contact. Please provide a recipient contact.",
+            detail=f"Patient has no registered {req_channel} contact. Please provide a recipient contact.",
         )
 
     patient_name = patient.first_name or patient.display_name or "Patient"
@@ -110,11 +115,11 @@ def send_patient_message(
         context["message"] = msg_text
 
     import uuid
-    idempotency_key = f"adhoc_{patient_id}_{req.channel}_{uuid.uuid4().hex[:10]}"
+    idempotency_key = f"adhoc_{patient_id}_{req_channel}_{uuid.uuid4().hex[:10]}"
 
     try:
         msg = container.messaging.send(
-            channel=req.channel,
+            channel=req_channel,
             patient_contact=contact,
             template_id=req.template_id,
             context=context,

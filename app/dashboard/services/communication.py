@@ -88,8 +88,15 @@ class CommunicationDashboardService:
                 "email_ready": readiness.email_ready,
             },
         )
+        p_phone = patient.phone or (patient.raw.get("Mobile") if isinstance(patient.raw, dict) else None) or (patient.raw.get("Telephone") if isinstance(patient.raw, dict) else None) or ""
+        p_email = patient.email or (patient.raw.get("Email") if isinstance(patient.raw, dict) else None) or ""
+        p_name = patient.first_name or patient.display_name or f"Patient #{readiness.patient_id}"
+
         return {
             "patient_id": readiness.patient_id,
+            "patient_name": p_name,
+            "phone": p_phone,
+            "email": p_email,
             "has_phone": readiness.has_phone,
             "has_email": readiness.has_email,
             "sms_ready": readiness.sms_ready,
