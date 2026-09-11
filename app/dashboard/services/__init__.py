@@ -11,6 +11,7 @@ from app.dashboard.services.referrers import ReferrerConflictService
 from app.dashboard.services.system import SystemService
 from app.dashboard.services.treatment_notes import TreatmentNoteService
 from app.dashboard.services.reviews import ReviewService
+from app.dashboard.services.templates import TemplateManagementService
 
 __all__ = [
     "ApprovalService",
@@ -26,6 +27,7 @@ __all__ = [
     "SystemService",
     "TreatmentNoteService",
     "ReviewService",
+    "TemplateManagementService",
     "safe_draft_from_task",
     "task_to_out",
 ]

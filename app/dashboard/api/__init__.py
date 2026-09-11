@@ -11,6 +11,7 @@ from app.dashboard.api import (
     patients,
     referrers,
     system,
+    templates,
 )
 
 __all__ = [
@@ -26,5 +27,6 @@ __all__ = [
     "patients",
     "referrers",
     "system",
+    "templates",
 ]
 

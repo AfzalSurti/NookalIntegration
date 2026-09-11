@@ -1,0 +1,611 @@
+{% extends "base.html" %}
+{% block title %}Templates — Back to Ease{% endblock %}
+{% block topbar_title %}Template Management{% endblock %}
+
+{% block head %}
+<style>
+  .template-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--sp-5);
+    margin-bottom: var(--sp-4);
+    box-shadow: var(--shadow-sm);
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .template-card:hover {
+    border-color: var(--brand);
+    box-shadow: var(--shadow-md);
+  }
+  .template-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-3);
+    flex-wrap: wrap;
+  }
+  .template-body-preview {
+    background: #f8fafc;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    padding: var(--sp-3) var(--sp-4);
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text-primary);
+    line-height: 1.5;
+    margin-bottom: var(--sp-3);
+  }
+  .placeholder-pill {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(13, 124, 102, 0.08);
+    border: 1px solid rgba(13, 124, 102, 0.25);
+    color: var(--brand);
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-right: 6px;
+    margin-bottom: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .placeholder-pill:hover {
+    background: rgba(13, 124, 102, 0.18);
+  }
+  .tab-nav {
+    display: flex;
+    gap: var(--sp-2);
+    border-bottom: 2px solid var(--border);
+    margin-bottom: var(--sp-5);
+  }
+  .tab-btn {
+    padding: var(--sp-3) var(--sp-5);
+    font-weight: 600;
+    font-size: 0.9rem;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .tab-btn:hover {
+    color: var(--brand);
+  }
+  .tab-btn.active {
+    color: var(--brand);
+    border-bottom-color: var(--brand);
+  }
+  .live-preview-box {
+    background: #ffffff;
+    border: 1.5px dashed var(--brand);
+    border-radius: var(--radius-sm);
+    padding: var(--sp-4);
+    font-size: 0.88rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    min-height: 70px;
+    color: #1e293b;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="flex gap-3" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+    <div>
+      <h1 class="page-title">Template Management</h1>
+      <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: var(--sp-1);">
+        Inspect and edit clinical letters, patient SMS/email notifications, and marketing templates with live placeholder preview.
+      </p>
+    </div>
+    {% if can_manage_marketing %}
+    <div>
+      <button type="button" class="btn btn-primary" onclick="openNewMarketingModal()">
+        + New Campaign Template
+      </button>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Tab Navigation -->
+<div class="tab-nav">
+  <button type="button" class="tab-btn active" id="tab-comm-btn" onclick="switchTab('communication')">
+    💬 Patient SMS & Messaging ({{ comm_templates|length }})
+  </button>
+  <button type="button" class="tab-btn" id="tab-letters-btn" onclick="switchTab('letters')">
+    📄 Clinical Letters & Certificates ({{ letters_templates|length }})
+  </button>
+  <button type="button" class="tab-btn" id="tab-marketing-btn" onclick="switchTab('marketing')">
+    ✉ Marketing Campaign Templates ({{ marketing_templates|length }})
+  </button>
+</div>
+
+<!-- Tab Content: Communication / SMS -->
+<div id="tab-communication" class="tab-pane">
+  <div class="info-banner" style="margin-bottom: var(--sp-4);">
+    SMS & Messaging templates are used across appointment automation, medical certificate dispatch, and direct patient outreach.
+    Placeholders like <code>{name}</code>, <code>{date}</code>, and <code>{time}</code> are automatically substituted before dispatch.
+  </div>
+
+  <div class="template-list">
+    {% for t in comm_templates %}
+    <div class="template-card" id="card-{{ t.category }}-{{ t.id }}">
+      <div class="template-header">
+        <div>
+          <div style="display: flex; align-items: center; gap: var(--sp-2);">
+            <h3 style="font-size: 1.05rem; font-weight: 600; margin: 0;">{{ t.name }}</h3>
+            <span class="badge badge-info">{{ t.channel|upper }}</span>
+            <code style="font-size: 0.8rem;">{{ t.id }}</code>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: var(--sp-1);">
+            {{ t.description }}
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="previewModal('{{ t.category }}', '{{ t.id }}')">
+            👁 Live Preview
+          </button>
+          {% if can_manage_comm %}
+          <button type="button" class="btn btn-primary btn-sm" onclick="openEditModal('{{ t.category }}', '{{ t.id }}')">
+            ✏ Edit Template
+          </button>
+          {% else %}
+          <span style="font-size: 0.75rem; color: var(--text-muted); align-self: center;">Read-only</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="template-body-preview">{{ t.body }}</div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2);">
+        <div>
+          <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-right: 6px;">Supported Placeholders:</span>
+          {% for p in t.all_placeholders %}
+            <span class="placeholder-pill" title="Click to copy" onclick="copyToken('{{ p }}')">&#123;{{ p }}&#125;</span>
+          {% endfor %}
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-muted);">
+          Length: <strong>{{ t.body|length }}</strong> chars (approx. {{ ((t.body|length / 160)|round(0, 'ceil'))|int or 1 }} SMS segment)
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Tab Content: Clinical Letters & Certificates -->
+<div id="tab-letters" class="tab-pane" style="display: none;">
+  <div class="info-banner" style="margin-bottom: var(--sp-4);">
+    Clinical letter & medical certificate templates define formal documents sent to referring practitioners, insurance bodies, or employers.
+    Required placeholders must be preserved so generated documents adhere to clinical standards.
+  </div>
+
+  <div class="template-list">
+    {% for t in letters_templates %}
+    <div class="template-card" id="card-{{ t.category }}-{{ t.id }}">
+      <div class="template-header">
+        <div>
+          <div style="display: flex; align-items: center; gap: var(--sp-2);">
+            <h3 style="font-size: 1.05rem; font-weight: 600; margin: 0;">{{ t.name }}</h3>
+            <span class="badge badge-success">CLINICAL LETTER</span>
+            <code style="font-size: 0.8rem;">{{ t.id }}</code>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: var(--sp-1);">
+            {{ t.description }}
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="previewModal('{{ t.category }}', '{{ t.id }}')">
+            👁 Live Preview
+          </button>
+          {% if can_manage_letters %}
+          <button type="button" class="btn btn-primary btn-sm" onclick="openEditModal('{{ t.category }}', '{{ t.id }}')">
+            ✏ Edit Template
+          </button>
+          {% else %}
+          <span style="font-size: 0.75rem; color: var(--text-muted); align-self: center;">Read-only</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="template-body-preview">{{ t.body }}</div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2);">
+        <div>
+          <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-right: 6px;">Required Placeholders:</span>
+          {% for p in t.required_placeholders %}
+            <span class="placeholder-pill" style="border-color: var(--brand);" onclick="copyToken('{{ p }}')">&#123;{{ p }}&#125;</span>
+          {% endfor %}
+          {% if t.optional_placeholders %}
+            <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-left: 8px; margin-right: 6px;">Optional:</span>
+            {% for p in t.optional_placeholders %}
+              <span class="placeholder-pill" style="background: #f1f5f9; color: var(--text-secondary);" onclick="copyToken('{{ p }}')">&#123;{{ p }}&#125;</span>
+            {% endfor %}
+          {% endif %}
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-muted);">
+          Document Type: <code>{{ t.document_type }}</code>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Tab Content: Marketing Campaign Templates -->
+<div id="tab-marketing" class="tab-pane" style="display: none;">
+  <div class="info-banner" style="margin-bottom: var(--sp-4);">
+    Marketing campaign email templates are selected when setting up segmented outreach campaigns in the Marketing dashboard.
+    Emails automatically include patient opt-out links and respect clinic suppression lists.
+  </div>
+
+  <div class="template-list">
+    {% for t in marketing_templates %}
+    <div class="template-card" id="card-{{ t.category }}-{{ t.id }}">
+      <div class="template-header">
+        <div>
+          <div style="display: flex; align-items: center; gap: var(--sp-2);">
+            <h3 style="font-size: 1.05rem; font-weight: 600; margin: 0;">{{ t.name }}</h3>
+            <span class="badge badge-info">EMAIL CAMPAIGN</span>
+            <code style="font-size: 0.8rem;">{{ t.id }}</code>
+          </div>
+          <div style="font-size: 0.85rem; font-weight: 600; color: var(--brand); margin-top: var(--sp-1);">
+            Subject: <span style="color: var(--text-primary); font-weight: normal;">{{ t.subject or "—" }}</span>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="previewModal('{{ t.category }}', '{{ t.id }}')">
+            👁 Live Preview
+          </button>
+          {% if can_manage_marketing %}
+          <button type="button" class="btn btn-primary btn-sm" onclick="openEditModal('{{ t.category }}', '{{ t.id }}')">
+            ✏ Edit Template
+          </button>
+          {% else %}
+          <span style="font-size: 0.75rem; color: var(--text-muted); align-self: center;">Read-only</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="template-body-preview">{{ t.body }}</div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2);">
+        <div>
+          <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-right: 6px;">Supported Placeholders:</span>
+          {% for p in t.all_placeholders %}
+            <span class="placeholder-pill" onclick="copyToken('{{ p }}')">&#123;{{ p }}&#125;</span>
+          {% endfor %}
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-muted);">
+          Updated: {{ t.updated_at[:10] if t.updated_at else "system" }}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Modal: Edit Template -->
+<div class="modal-backdrop" id="edit-template-modal">
+  <div class="modal" style="max-width: 720px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="edit-modal-title">Edit Template</div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;" id="edit-modal-subtitle"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal('edit-template-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="edit-modal-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-3);"></div>
+      <div id="edit-modal-success" class="alert alert-success" style="display: none; margin-bottom: var(--sp-3);"></div>
+
+      <form id="edit-template-form" onsubmit="submitTemplateUpdate(event)">
+        <input type="hidden" id="edit-tpl-category">
+        <input type="hidden" id="edit-tpl-id">
+
+        <!-- Subject Line (Marketing only) -->
+        <div class="form-group" id="group-edit-subject" style="display: none; margin-bottom: var(--sp-3);">
+          <label for="edit-tpl-subject" style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 4px;">Email Subject Line</label>
+          <input id="edit-tpl-subject" class="form-control" placeholder="Subject for this campaign...">
+        </div>
+
+        <!-- Placeholders Toolbar -->
+        <div style="margin-bottom: var(--sp-2);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label for="edit-tpl-body" style="font-weight: 600; font-size: 0.85rem; margin: 0;">Template Body Content <span style="color: var(--error);">*</span></label>
+            <span id="edit-char-count" style="font-size: 0.75rem; color: var(--text-muted);">0 chars</span>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px;">
+            Click any token below to insert it at your cursor:
+          </div>
+          <div id="edit-placeholders-bar" style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: var(--sp-2);"></div>
+        </div>
+
+        <!-- Body Textarea -->
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <textarea id="edit-tpl-body" class="form-control" rows="8" required style="font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace; font-size: 0.88rem; line-height: 1.45;" oninput="onEditBodyChange()"></textarea>
+        </div>
+
+        <!-- Real-Time Render Preview -->
+        <div style="margin-bottom: var(--sp-4);">
+          <div style="font-size: 0.78rem; font-weight: 600; color: var(--brand); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em;">
+            Live Render Preview (Sample Patient Data)
+          </div>
+          <div class="live-preview-box" id="edit-live-preview">Type in the editor to see rendered preview...</div>
+        </div>
+
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-4); display: flex; justify-content: flex-end; gap: var(--sp-2);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('edit-template-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-template">Save Template Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Live Preview Modal -->
+<div class="modal-backdrop" id="preview-modal">
+  <div class="modal" style="max-width: 650px;">
+    <div class="modal-header">
+      <div class="modal-title" id="preview-modal-title">Template Live Preview</div>
+      <button class="modal-close" onclick="closeModal('preview-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom: var(--sp-3);">
+        <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 2px;">CHANNEL / FORMAT:</div>
+        <div id="preview-modal-channel" style="font-weight: 600;"></div>
+      </div>
+      <div style="margin-bottom: var(--sp-4);">
+        <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">RENDERED OUTPUT:</div>
+        <div class="live-preview-box" id="preview-modal-body" style="background: #f8fafc; font-size: 0.92rem;"></div>
+      </div>
+      <div class="modal-footer" style="padding: 0; margin-top: var(--sp-4);">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('preview-modal')">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: New Marketing Template -->
+<div class="modal-backdrop" id="new-marketing-modal">
+  <div class="modal" style="max-width: 650px;">
+    <div class="modal-header">
+      <div class="modal-title">Create Marketing Campaign Template</div>
+      <button class="modal-close" onclick="closeModal('new-marketing-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="new-mkt-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-3);"></div>
+      <form id="new-marketing-form" onsubmit="submitCreateMarketingTemplate(event)">
+        <div class="form-group" style="margin-bottom: var(--sp-3);">
+          <label for="new-mkt-id" style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 4px;">Template Slug ID <span style="color: var(--error);">*</span></label>
+          <input id="new-mkt-id" class="form-control" required placeholder="e.g. summer_promo_v1" pattern="^[a-zA-Z0-9_-]+$">
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-3);">
+          <label for="new-mkt-name" style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 4px;">Display Name <span style="color: var(--error);">*</span></label>
+          <input id="new-mkt-name" class="form-control" required placeholder="e.g. Summer Mobility Promotion">
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-3);">
+          <label for="new-mkt-subject" style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 4px;">Email Subject <span style="color: var(--error);">*</span></label>
+          <input id="new-mkt-subject" class="form-control" required placeholder="e.g. Stay Active This Summer — Back to Ease">
+        </div>
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label for="new-mkt-body" style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 4px;">Email Body Content <span style="color: var(--error);">*</span></label>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">Supported tokens: <code>{first_name}</code>, <code>{clinic_name}</code>, <code>{phone}</code></div>
+          <textarea id="new-mkt-body" class="form-control" rows="6" required placeholder="Dear {first_name}, ..."></textarea>
+        </div>
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-4);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('new-marketing-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-new-mkt">Create Template</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let activeTab = 'communication';
+let currentEditingTemplate = null;
+
+// Initialize tab from URL hash or param
+document.addEventListener('DOMContentLoaded', () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const tabParam = urlParams.get('tab');
+  if (tabParam && ['communication', 'letters', 'marketing'].includes(tabParam)) {
+    switchTab(tabParam);
+  }
+});
+
+function switchTab(tab) {
+  activeTab = tab;
+  ['communication', 'letters', 'marketing'].forEach(t => {
+    const pane = document.getElementById('tab-' + t);
+    const btn = document.getElementById('tab-' + t + '-btn');
+    if (pane) pane.style.display = (t === tab) ? 'block' : 'none';
+    if (btn) btn.classList.toggle('active', t === tab);
+  });
+}
+
+function copyToken(token) {
+  navigator.clipboard.writeText('{' + token + '}');
+  alert('Copied {' + token + '} to clipboard.');
+}
+
+function previewModal(category, templateId) {
+  apiCall('POST', '/api/templates/preview', {
+    category: category,
+    template_id: templateId
+  }).then(data => {
+    document.getElementById('preview-modal-title').textContent = 'Preview: ' + templateId;
+    document.getElementById('preview-modal-channel').innerHTML = '<span class="badge badge-info">' + (data.channel || category).toUpperCase() + '</span> · ' + data.char_count + ' characters';
+    document.getElementById('preview-modal-body').textContent = data.rendered;
+    openModal('preview-modal');
+  }).catch(err => {
+    alert('Failed to preview: ' + (err.detail || err.message));
+  });
+}
+
+function openEditModal(category, templateId) {
+  const errDiv = document.getElementById('edit-modal-error');
+  const succDiv = document.getElementById('edit-modal-success');
+  errDiv.style.display = 'none';
+  succDiv.style.display = 'none';
+
+  apiCall('GET', '/api/templates/' + encodeURIComponent(category) + '/' + encodeURIComponent(templateId))
+    .then(tpl => {
+      currentEditingTemplate = tpl;
+      document.getElementById('edit-tpl-category').value = category;
+      document.getElementById('edit-tpl-id').value = templateId;
+      document.getElementById('edit-modal-title').textContent = 'Edit ' + tpl.name;
+      document.getElementById('edit-modal-subtitle').textContent = 'ID: ' + tpl.id + ' · Category: ' + category.toUpperCase();
+
+      const subjectGroup = document.getElementById('group-edit-subject');
+      if (category === 'marketing') {
+        subjectGroup.style.display = 'block';
+        document.getElementById('edit-tpl-subject').value = tpl.subject || '';
+      } else {
+        subjectGroup.style.display = 'none';
+      }
+
+      const bodyElem = document.getElementById('edit-tpl-body');
+      bodyElem.value = tpl.body;
+
+      // Populate placeholders toolbar
+      const bar = document.getElementById('edit-placeholders-bar');
+      bar.innerHTML = '';
+      (tpl.all_placeholders || []).forEach(p => {
+        const span = document.createElement('span');
+        span.className = 'placeholder-pill';
+        span.textContent = '{' + p + '}';
+        span.title = 'Click to insert at cursor';
+        span.onclick = () => insertPlaceholderAtCursor(p);
+        bar.appendChild(span);
+      });
+
+      onEditBodyChange();
+      openModal('edit-template-modal');
+    })
+    .catch(err => {
+      alert('Could not load template: ' + (err.detail || err.message));
+    });
+}
+
+function insertPlaceholderAtCursor(token) {
+  const textarea = document.getElementById('edit-tpl-body');
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const text = textarea.value;
+  const insertion = '{' + token + '}';
+  textarea.value = text.substring(0, start) + insertion + text.substring(end);
+  textarea.selectionStart = textarea.selectionEnd = start + insertion.length;
+  textarea.focus();
+  onEditBodyChange();
+}
+
+function onEditBodyChange() {
+  const textarea = document.getElementById('edit-tpl-body');
+  const val = textarea.value;
+  const countSpan = document.getElementById('edit-char-count');
+  const seg = Math.ceil(val.length / 160) || 1;
+  countSpan.textContent = val.length + ' chars (' + seg + ' SMS segment' + (seg > 1 ? 's' : '') + ')';
+
+  // Real-time live render
+  const cat = document.getElementById('edit-tpl-category').value;
+  const tplId = document.getElementById('edit-tpl-id').value;
+
+  apiCall('POST', '/api/templates/preview', {
+    category: cat,
+    template_id: tplId,
+    override_body: val
+  }).then(res => {
+    document.getElementById('edit-live-preview').textContent = res.rendered;
+  }).catch(() => {
+    document.getElementById('edit-live-preview').textContent = val;
+  });
+}
+
+function submitTemplateUpdate(e) {
+  e.preventDefault();
+  const cat = document.getElementById('edit-tpl-category').value;
+  const tplId = document.getElementById('edit-tpl-id').value;
+  const body = document.getElementById('edit-tpl-body').value;
+  const subject = (cat === 'marketing') ? document.getElementById('edit-tpl-subject').value : null;
+
+  const btn = document.getElementById('btn-save-template');
+  const errDiv = document.getElementById('edit-modal-error');
+  const succDiv = document.getElementById('edit-modal-success');
+  errDiv.style.display = 'none';
+  succDiv.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  apiCall('PUT', '/api/templates/' + encodeURIComponent(cat) + '/' + encodeURIComponent(tplId), {
+    body: body,
+    subject: subject
+  }).then(res => {
+    btn.disabled = false;
+    btn.textContent = 'Save Template Changes';
+    succDiv.style.display = 'block';
+    succDiv.textContent = res.message || 'Template successfully updated!';
+
+    setTimeout(() => {
+      closeModal('edit-template-modal');
+      location.reload();
+    }, 900);
+  }).catch(err => {
+    btn.disabled = false;
+    btn.textContent = 'Save Template Changes';
+    errDiv.style.display = 'block';
+    errDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to update template.';
+  });
+}
+
+function openNewMarketingModal() {
+  document.getElementById('new-mkt-error').style.display = 'none';
+  document.getElementById('new-marketing-form').reset();
+  openModal('new-marketing-modal');
+}
+
+function submitCreateMarketingTemplate(e) {
+  e.preventDefault();
+  const id = document.getElementById('new-mkt-id').value.trim();
+  const name = document.getElementById('new-mkt-name').value.trim();
+  const subject = document.getElementById('new-mkt-subject').value.trim();
+  const body = document.getElementById('new-mkt-body').value.trim();
+
+  const errDiv = document.getElementById('new-mkt-error');
+  const btn = document.getElementById('btn-save-new-mkt');
+  errDiv.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+
+  apiCall('POST', '/api/templates/marketing', {
+    id: id,
+    name: name,
+    subject: subject,
+    body: body
+  }).then(() => {
+    closeModal('new-marketing-modal');
+    switchTab('marketing');
+    location.reload();
+  }).catch(err => {
+    btn.disabled = false;
+    btn.textContent = 'Create Template';
+    errDiv.style.display = 'block';
+    errDiv.textContent = (err && (err.detail || err.error || err.message)) || 'Failed to create marketing template.';
+  });
+}
+</script>
+{% endblock %}

@@ -33,6 +33,7 @@ from app.dashboard.dependencies import (
     treatment_note_service,
     review_service,
     communication_service,
+    template_service,
 )
 from app.dashboard.services import (
     ApprovalService,
@@ -48,6 +49,7 @@ from app.dashboard.services import (
     TreatmentNoteService,
     ReviewService,
     CommunicationDashboardService,
+    TemplateManagementService,
 )
 
 router = APIRouter(tags=["views"])
@@ -1319,6 +1321,41 @@ async def communication_page(
                 "overview": overview,
                 "workflows": workflows,
                 "can_manage": can_manage,
+            },
+        ),
+    )
+
+
+@router.get("/templates", response_class=HTMLResponse)
+async def templates_page(
+    request: Request,
+    user: Annotated[User, Depends(require_permission(Permission.COMMUNICATION_VIEW))],
+    session: Annotated[Session | None, Depends(get_session)],
+    container: Annotated[DashboardContainer, Depends(get_container)],
+    svc: Annotated[TemplateManagementService, Depends(template_service)],
+) -> HTMLResponse:
+    comm_templates = svc.list_all(category="communication")
+    letters_templates = svc.list_all(category="letters")
+    marketing_templates = svc.list_all(category="marketing")
+
+    can_manage_comm = _can(container, user.role, Permission.COMMUNICATION_MANAGE) or user.role in ("admin", "owner")
+    can_manage_letters = user.role in ("practitioner", "admin", "owner")
+    can_manage_marketing = _can(container, user.role, Permission.MARKETING_MANAGE) or user.role in ("admin", "owner")
+
+    return _templates(request).TemplateResponse(
+        request,
+        name="templates.html",
+        context=_base_ctx(
+            request,
+            user,
+            session,
+            extra={
+                "comm_templates": comm_templates,
+                "letters_templates": letters_templates,
+                "marketing_templates": marketing_templates,
+                "can_manage_comm": can_manage_comm,
+                "can_manage_letters": can_manage_letters,
+                "can_manage_marketing": can_manage_marketing,
             },
         ),
     )

@@ -170,6 +170,8 @@ class AudienceBuilder:
         appointment_from = None
         appointment_to = None
         referrer_id = None
+        explicit_patient_ids: list[str] | None = None
+        excluded_patient_ids: set[str] = set()
 
         for filter_spec in filters:
             if filter_spec.filter_type == MarketingFilterType.SUBURB:
@@ -180,16 +182,51 @@ class AudienceBuilder:
                 appointment_from, appointment_to = filter_spec.value
             elif filter_spec.filter_type == MarketingFilterType.REFERRER_ID:
                 referrer_id = filter_spec.value
+            elif filter_spec.filter_type == MarketingFilterType.PATIENT_IDS:
+                vals = filter_spec.value or []
+                if isinstance(vals, str):
+                    vals = [x.strip() for x in vals.split(",") if x.strip()]
+                explicit_patient_ids = [str(x).strip() for x in vals if str(x).strip()]
+            elif filter_spec.filter_type == MarketingFilterType.EXCLUDED_PATIENT_IDS:
+                vals = filter_spec.value or []
+                if isinstance(vals, str):
+                    vals = [x.strip() for x in vals.split(",") if x.strip()]
+                excluded_patient_ids.update(str(x).strip() for x in vals if str(x).strip())
             else:
                 raise AutomationError(f"unknown filter type: {filter_spec.filter_type}")
 
         # Call NookalClient.search_patients with extracted parameters
-        return self.nookal.search_patients(
-            suburb=suburb,
-            age_min=age_min,
-            age_max=age_max,
-            appointment_from=appointment_from,
-            appointment_to=appointment_to,
-            referrer_id=referrer_id,
-        )
+        if explicit_patient_ids is not None and not any([suburb, age_min, age_max, appointment_from, appointment_to, referrer_id]):
+            candidates = []
+            for pid in explicit_patient_ids:
+                try:
+                    p = self.nookal.get_patient(pid)
+                    if p:
+                        candidates.append(p)
+                except Exception:
+                    pass
+        else:
+            candidates = self.nookal.search_patients(
+                suburb=suburb,
+                age_min=age_min,
+                age_max=age_max,
+                appointment_from=appointment_from,
+                appointment_to=appointment_to,
+                referrer_id=referrer_id,
+            )
+            if explicit_patient_ids:
+                existing_ids = {str(c.patient_id) for c in candidates}
+                for pid in explicit_patient_ids:
+                    if pid not in existing_ids:
+                        try:
+                            p = self.nookal.get_patient(pid)
+                            if p:
+                                candidates.append(p)
+                        except Exception:
+                            pass
+
+        if excluded_patient_ids:
+            candidates = [p for p in candidates if str(p.patient_id) not in excluded_patient_ids]
+
+        return candidates
 

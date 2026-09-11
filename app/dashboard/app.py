@@ -21,6 +21,7 @@ from app.dashboard.api import (
     patients,
     referrers,
     system,
+    templates,
 )
 from app.dashboard.container import DashboardContainer
 from app.dashboard.views import pages
@@ -76,10 +77,11 @@ def create_app(container: DashboardContainer | None = None) -> FastAPI:
     app.include_router(finance.router)
     app.include_router(cases.router)
     app.include_router(communication.router)
+    app.include_router(templates.router)
     app.include_router(pages.router)
 
-    templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-    app.state.templates = templates
+    jinja_templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+    app.state.templates = jinja_templates
 
     @app.get("/healthz", response_class=JSONResponse, include_in_schema=False)
     def healthz() -> dict[str, str]:

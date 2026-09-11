@@ -20,6 +20,8 @@ class MarketingFilterType(str, Enum):
     AGE_RANGE = "age_range"  # (min_age, max_age)
     LAST_APPOINTMENT_DATE_RANGE = "last_appointment_date_range"  # (start_date, end_date)
     REFERRER_ID = "referrer_id"
+    PATIENT_IDS = "patient_ids"
+    EXCLUDED_PATIENT_IDS = "excluded_patient_ids"
 
 
 class CampaignStatus(str, Enum):

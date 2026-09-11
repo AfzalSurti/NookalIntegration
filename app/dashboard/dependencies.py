@@ -254,3 +254,14 @@ def messaging_service(
     return container.messaging
 
 
+def template_service(
+    container: Annotated[DashboardContainer, Depends(get_container)],
+) -> Any:
+    from app.dashboard.services.templates import TemplateManagementService
+    svc = getattr(container, "template_service", None)
+    if svc is None:
+        svc = TemplateManagementService()
+        container.template_service = svc
+    return svc
+
+

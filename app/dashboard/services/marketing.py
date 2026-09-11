@@ -54,7 +54,12 @@ class MarketingService:
     def create_list(self, *, actor: str, role: str, correlation_id: str, body: dict[str, Any]) -> dict[str, Any]:
         name = str(body.get("name") or "").strip()
         description = str(body.get("description") or "")
-        raw_filters = body.get("filter_definition") or []
+        raw_filters = list(body.get("filter_definition") or [])
+        if "patient_ids" in body and body["patient_ids"]:
+            raw_filters.append({"filter_type": "patient_ids", "value": body["patient_ids"]})
+        if "excluded_patient_ids" in body and body["excluded_patient_ids"]:
+            raw_filters.append({"filter_type": "excluded_patient_ids", "value": body["excluded_patient_ids"]})
+
         filters: tuple[MarketingFilter, ...] = tuple(
             MarketingFilter(
                 filter_type=MarketingFilterType(str(item["filter_type"])),
@@ -79,6 +84,64 @@ class MarketingService:
             metadata={"correlation_id": correlation_id, "role": role},
         )
         return self._serialize_list(created)
+
+    def preview_audience(self, *, actor: str, role: str, correlation_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        raw_filters = list(body.get("filter_definition") or [])
+        if "suburb" in body and body["suburb"]:
+            raw_filters.append({"filter_type": "suburb", "value": body["suburb"]})
+        if "patient_ids" in body and body["patient_ids"]:
+            raw_filters.append({"filter_type": "patient_ids", "value": body["patient_ids"]})
+        if "excluded_patient_ids" in body and body["excluded_patient_ids"]:
+            raw_filters.append({"filter_type": "excluded_patient_ids", "value": body["excluded_patient_ids"]})
+
+        filters: tuple[MarketingFilter, ...] = tuple(
+            MarketingFilter(
+                filter_type=MarketingFilterType(str(item["filter_type"])),
+                value=item.get("value"),
+            )
+            for item in raw_filters
+        )
+        temp_list = MarketingList(
+            id="preview",
+            name="preview",
+            description="",
+            filter_definition=filters,
+        )
+        aud_result = self._audience.build_audience(temp_list)
+        candidates = self._audience._query_candidates(filters)
+        
+        patient_items = []
+        for c in candidates[:100]:
+            suppression = self._suppression_store.get(c.patient_id)
+            is_suppressed = self._audience.suppression_policy.is_suppressed(suppression)
+            consent = self._consent_store.get(c.patient_id)
+            has_consent = self._audience.consent_policy.is_eligible(consent)
+            has_email = bool(c.email and "@" in c.email)
+            is_eligible = has_email and not is_suppressed and has_consent
+            patient_items.append({
+                "patient_id": c.patient_id,
+                "name": c.first_name or c.display_name or f"Patient #{c.patient_id}",
+                "suburb": c.suburb or "",
+                "email": c.email or "",
+                "phone": c.phone or "",
+                "has_email": has_email,
+                "has_consent": has_consent,
+                "is_suppressed": is_suppressed,
+                "is_eligible": is_eligible,
+            })
+
+        self._audit(
+            actor=actor,
+            action="dashboard.marketing_audience_preview",
+            target_type="marketing_list",
+            target_id="preview",
+            result="success",
+            metadata={"correlation_id": correlation_id, "role": role, "candidates": len(candidates)},
+        )
+        return {
+            **aud_result.to_dict(),
+            "patients": patient_items,
+        }
 
     def list_campaigns(self, *, actor: str, role: str, correlation_id: str) -> list[dict[str, Any]]:
         items = self._campaign_store.all()

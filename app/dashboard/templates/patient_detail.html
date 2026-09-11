@@ -529,7 +529,10 @@
 
         <!-- Template Selector -->
         <div class="form-group" style="margin-bottom: var(--sp-3);">
-          <label class="form-label" for="msg-template-select" style="font-weight: 600; font-size: 0.85rem; margin-bottom: var(--sp-1); display: block;">Message Template</label>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-1);">
+            <label class="form-label" for="msg-template-select" style="font-weight: 600; font-size: 0.85rem; margin: 0;">Message Template</label>
+            <a href="/templates?tab=communication" target="_blank" style="font-size: 0.78rem;">Edit Templates ↗</a>
+          </div>
           <select id="msg-template-select" class="form-control" style="width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.9rem;" onchange="onTemplateChange()">
             <option value="direct_message">Custom Message (Direct Text)</option>
             <option value="appointment_reminder">Appointment Reminder Template</option>

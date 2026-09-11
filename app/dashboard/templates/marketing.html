@@ -12,6 +12,7 @@
     </div>
     {% if can_manage %}
     <div class="flex gap-2">
+      <a href="/templates?tab=marketing" class="btn btn-secondary">📝 Campaign Templates</a>
       <button type="button" class="btn btn-secondary" onclick="openModal('create-list-modal')">+ New Audience List</button>
       <button type="button" class="btn btn-primary" onclick="openModal('create-campaign-modal')">+ New Campaign</button>
     </div>
@@ -121,7 +122,13 @@
           <td>
             {% if l.filter_definition %}
               {% for f in l.filter_definition %}
-                <span class="badge badge-neutral" style="margin-right: 4px;">{{ f.filter_type }}: {{ f.value }}</span>
+                {% if f.filter_type == "patient_ids" %}
+                  <span class="badge badge-primary" style="margin-right: 4px;">Included: {{ f.value|length }} patients</span>
+                {% elif f.filter_type == "excluded_patient_ids" %}
+                  <span class="badge badge-warning" style="margin-right: 4px;">Excluded: {{ f.value|length }} patients</span>
+                {% else %}
+                  <span class="badge badge-neutral" style="margin-right: 4px;">{{ f.filter_type }}: {{ f.value }}</span>
+                {% endif %}
               {% endfor %}
             {% else %}
               <span style="color: var(--text-muted); font-size: 0.85rem;">All patients</span>
@@ -168,8 +175,18 @@
           <input id="camp-subject" required placeholder="e.g. Tips for Back Health — Back to Ease">
         </div>
         <div class="form-group" style="margin-bottom: var(--sp-4);">
-          <label for="camp-template">Template ID <span style="color: var(--error);">*</span></label>
-          <input id="camp-template" required placeholder="e.g. general_newsletter_v1">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label for="camp-template" style="font-weight: 600; font-size: 0.85rem; margin: 0;">Email Template <span style="color: var(--error);">*</span></label>
+            <a href="/templates?tab=marketing" target="_blank" style="font-size: 0.78rem;">Manage / Edit Templates ↗</a>
+          </div>
+          <select id="camp-template" required onchange="onCampaignTemplateChange()">
+            <option value="">Select an email campaign template...</option>
+            <option value="general_newsletter_v1">Seasonal Clinic Newsletter (general_newsletter_v1)</option>
+            <option value="wellness_tips_v1">Spine Health & Ergonomic Advice (wellness_tips_v1)</option>
+            <option value="checkup_reminder_v1">Annual Spinal Health Checkup (checkup_reminder_v1)</option>
+            <option value="reengagement_v1">Patient Re-engagement / Check-in (reengagement_v1)</option>
+          </select>
+          <div id="camp-tpl-preview-box" style="display: none; margin-top: var(--sp-2); padding: var(--sp-3); background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45;"></div>
         </div>
         <div class="form-group" style="margin-bottom: var(--sp-4);">
           <label for="camp-list-id">Target Audience List <span style="color: var(--error);">*</span></label>
@@ -189,9 +206,9 @@
   </div>
 </div>
 
-<!-- Modal: Create List -->
+<!-- Modal: Create List with Add/Remove Patient Controls -->
 <div class="modal-backdrop" id="create-list-modal">
-  <div class="modal">
+  <div class="modal" style="max-width: 760px;">
     <div class="modal-header">
       <div class="modal-title">Create Audience List</div>
       <button class="modal-close" onclick="closeModal('create-list-modal')">×</button>
@@ -199,19 +216,72 @@
     <div class="modal-body">
       <div id="list-modal-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4);"></div>
       <form id="create-list-form" onsubmit="submitCreateList(event)">
-        <div class="form-group" style="margin-bottom: var(--sp-4);">
-          <label for="list-name">List Name <span style="color: var(--error);">*</span></label>
-          <input id="list-name" required placeholder="e.g. Richmond Patients">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-bottom: var(--sp-3);">
+          <div class="form-group">
+            <label for="list-name" style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 4px;">List Name <span style="color: var(--error);">*</span></label>
+            <input id="list-name" class="form-control" style="width: 100%; padding: 8px 12px; font-size: 0.9rem;" required placeholder="e.g. Richmond Patients">
+          </div>
+          <div class="form-group">
+            <label for="list-suburb" style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 4px;">Filter by Suburb (Optional)</label>
+            <div style="display: flex; gap: var(--sp-2);">
+              <input id="list-suburb" class="form-control" style="flex: 1; padding: 8px 12px; font-size: 0.9rem;" placeholder="e.g. Richmond">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="previewPatientsBySuburb()">🔍 Search</button>
+            </div>
+          </div>
         </div>
-        <div class="form-group" style="margin-bottom: var(--sp-4);">
-          <label for="list-desc">Description</label>
-          <textarea id="list-desc" rows="2" placeholder="Optional description of target audience criteria..."></textarea>
+
+        <div class="form-group" style="margin-bottom: var(--sp-3);">
+          <label for="list-desc" style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 4px;">Description</label>
+          <input id="list-desc" class="form-control" style="width: 100%; padding: 8px 12px; font-size: 0.9rem;" placeholder="Optional description of target audience criteria...">
         </div>
-        <div class="form-group" style="margin-bottom: var(--sp-4);">
-          <label for="list-suburb">Filter by Suburb (Optional)</label>
-          <input id="list-suburb" placeholder="e.g. Richmond">
+
+        <!-- Add Specific Patient Control -->
+        <div class="card" style="margin-bottom: var(--sp-3); padding: var(--sp-3); background: var(--bg-surface-secondary, #f8fafc); border: 1px solid var(--border);">
+          <label style="font-weight: 600; font-size: 0.85rem; display: block; margin-bottom: 4px;">Add Individual Patient to List</label>
+          <div style="display: flex; gap: var(--sp-2);">
+            <input type="text" id="list-patient-input" class="form-control" placeholder="Enter Patient ID (e.g. pat_1001) or name..." style="flex: 1; padding: 6px 10px; font-size: 0.85rem;">
+            <button type="button" class="btn btn-primary btn-sm" onclick="addPatientToList()">+ Add Patient</button>
+          </div>
+          <div id="list-patient-add-status" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;"></div>
         </div>
-        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-5);">
+
+        <!-- Audience Membership Counters -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-2); padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.82rem;">
+          <div class="flex gap-4">
+            <div>Candidates: <strong id="stat-candidate-count" style="color: var(--text);">0</strong></div>
+            <div>Eligible to Receive: <strong id="stat-eligible-count" style="color: var(--success);">0</strong></div>
+            <div>Explicitly Added: <strong id="stat-included-count" style="color: var(--brand);">0</strong></div>
+            <div>Excluded / Removed: <strong id="stat-excluded-count" style="color: var(--error);">0</strong></div>
+          </div>
+          <div>
+            <button type="button" class="btn btn-outline btn-sm" style="padding: 2px 8px; font-size: 0.75rem;" onclick="clearAllPatients()">Clear All</button>
+          </div>
+        </div>
+
+        <!-- Patients Table with Remove Actions -->
+        <div style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: var(--sp-4);">
+          <table class="data-table" style="font-size: 0.82rem; margin: 0; width: 100%;">
+            <thead style="position: sticky; top: 0; background: var(--surface); z-index: 1;">
+              <tr>
+                <th style="width: 32px;"><input type="checkbox" id="check-all-patients" checked onchange="toggleAllPatients(this)"></th>
+                <th>Patient ID</th>
+                <th>Name</th>
+                <th>Suburb</th>
+                <th>Email &amp; Status</th>
+                <th style="text-align: right;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="audience-patients-tbody">
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: var(--sp-4);">
+                  No patients in this list yet. Use the suburb search or add patients by ID above.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="modal-footer" style="padding: 0; margin-top: var(--sp-4); display: flex; justify-content: flex-end; gap: var(--sp-2);">
           <button type="button" class="btn btn-secondary" onclick="closeModal('create-list-modal')">Cancel</button>
           <button type="submit" class="btn btn-primary" id="btn-save-list">Save Audience List</button>
         </div>
@@ -223,11 +293,36 @@
 
 {% block scripts %}
 <script>
+let AUDIENCE_PATIENTS = []; // Array of { patient_id, name, suburb, email, has_email, has_consent, is_suppressed, is_eligible, included }
+let EXCLUDED_PATIENT_IDS = new Set();
+let EXPLICIT_INCLUDED_IDS = new Set();
+
 function runCampaignAction(action, campaignId) {
   if (!confirm('Are you sure you want to ' + action + ' this campaign?')) return;
   apiCall('POST', '/api/marketing/campaigns/' + encodeURIComponent(campaignId) + '/' + action)
     .then(() => location.reload())
     .catch(err => alert((err && (err.detail || err.error || err.message)) || 'Campaign action failed'));
+}
+
+function onCampaignTemplateChange() {
+  const sel = document.getElementById('camp-template');
+  const preview = document.getElementById('camp-tpl-preview-box');
+  const subjectInput = document.getElementById('camp-subject');
+  if (!sel || !sel.value) {
+    if (preview) preview.style.display = 'none';
+    return;
+  }
+  apiCall('GET', '/api/templates/marketing/' + encodeURIComponent(sel.value))
+    .then(tpl => {
+      preview.style.display = 'block';
+      preview.innerHTML = '<strong>Subject:</strong> ' + (tpl.subject || '') + '<br><br>' + (tpl.body || '').replace(/\n/g, '<br>');
+      if (!subjectInput.value.trim() && tpl.subject) {
+        subjectInput.value = tpl.subject;
+      }
+    })
+    .catch(() => {
+      if (preview) preview.style.display = 'none';
+    });
 }
 
 function submitCreateCampaign(e) {
@@ -263,6 +358,182 @@ function submitCreateCampaign(e) {
     });
 }
 
+function renderAudienceTable() {
+  const tbody = document.getElementById('audience-patients-tbody');
+  if (!AUDIENCE_PATIENTS.length) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; color: var(--text-muted); padding: var(--sp-4);">
+          No patients in this list yet. Use the suburb search or add patients by ID above.
+        </td>
+      </tr>
+    `;
+    updateAudienceStats();
+    return;
+  }
+
+  tbody.innerHTML = AUDIENCE_PATIENTS.map((p, idx) => {
+    const isExcluded = EXCLUDED_PATIENT_IDS.has(p.patient_id) || !p.included;
+    let statusBadge = '<span class="badge badge-success" style="font-size: 0.72rem;">Eligible</span>';
+    if (!p.has_email) {
+      statusBadge = '<span class="badge badge-neutral" style="font-size: 0.72rem;">No Email</span>';
+    } else if (p.is_suppressed) {
+      statusBadge = '<span class="badge badge-error" style="font-size: 0.72rem;">Suppressed</span>';
+    } else if (!p.has_consent) {
+      statusBadge = '<span class="badge badge-warning" style="font-size: 0.72rem;">No Consent</span>';
+    }
+
+    return `
+      <tr style="${isExcluded ? 'opacity: 0.5; background: var(--bg-surface-secondary, #fafafa);' : ''}">
+        <td>
+          <input type="checkbox" ${!isExcluded ? 'checked' : ''} onchange="togglePatientInclusion('${p.patient_id}', this.checked)">
+        </td>
+        <td><code>${p.patient_id}</code></td>
+        <td style="font-weight: 500;">${p.name}</td>
+        <td>${p.suburb || '—'}</td>
+        <td>
+          ${p.email || '<span style="color: var(--text-muted); font-size: 0.75rem;">None</span>'}
+          <span style="margin-left: 6px;">${statusBadge}</span>
+        </td>
+        <td style="text-align: right;">
+          ${!isExcluded ? 
+            `<button type="button" class="btn btn-outline btn-sm" style="color: var(--error); padding: 2px 6px; font-size: 0.72rem;" onclick="removePatientFromList('${p.patient_id}')">✕ Remove</button>` :
+            `<button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 0.72rem;" onclick="reAddPatientToList('${p.patient_id}')">+ Add Back</button>`
+          }
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  updateAudienceStats();
+}
+
+function updateAudienceStats() {
+  const total = AUDIENCE_PATIENTS.length;
+  const includedPatients = AUDIENCE_PATIENTS.filter(p => !EXCLUDED_PATIENT_IDS.has(p.patient_id) && p.included);
+  const eligible = includedPatients.filter(p => p.is_eligible).length;
+  const excluded = EXCLUDED_PATIENT_IDS.size;
+
+  document.getElementById('stat-candidate-count').textContent = includedPatients.length;
+  document.getElementById('stat-eligible-count').textContent = eligible;
+  document.getElementById('stat-included-count').textContent = EXPLICIT_INCLUDED_IDS.size;
+  document.getElementById('stat-excluded-count').textContent = excluded;
+}
+
+function togglePatientInclusion(patientId, isChecked) {
+  const p = AUDIENCE_PATIENTS.find(x => x.patient_id === patientId);
+  if (p) {
+    p.included = isChecked;
+  }
+  if (isChecked) {
+    EXCLUDED_PATIENT_IDS.delete(patientId);
+  } else {
+    EXCLUDED_PATIENT_IDS.add(patientId);
+  }
+  renderAudienceTable();
+}
+
+function removePatientFromList(patientId) {
+  togglePatientInclusion(patientId, false);
+}
+
+function reAddPatientToList(patientId) {
+  togglePatientInclusion(patientId, true);
+}
+
+function toggleAllPatients(masterCheckbox) {
+  const checked = masterCheckbox.checked;
+  AUDIENCE_PATIENTS.forEach(p => {
+    p.included = checked;
+    if (checked) {
+      EXCLUDED_PATIENT_IDS.delete(p.patient_id);
+    } else {
+      EXCLUDED_PATIENT_IDS.add(p.patient_id);
+    }
+  });
+  renderAudienceTable();
+}
+
+function clearAllPatients() {
+  AUDIENCE_PATIENTS = [];
+  EXCLUDED_PATIENT_IDS.clear();
+  EXPLICIT_INCLUDED_IDS.clear();
+  renderAudienceTable();
+}
+
+async function addPatientToList() {
+  const input = document.getElementById('list-patient-input');
+  const statusDiv = document.getElementById('list-patient-add-status');
+  const query = input.value.trim();
+  if (!query) return;
+
+  statusDiv.textContent = 'Searching for patient...';
+  try {
+    const searchRes = await apiCall('GET', '/api/patients/search?q=' + encodeURIComponent(query) + '&limit=5');
+    if (searchRes && searchRes.items && searchRes.items.length) {
+      let addedCount = 0;
+      for (const item of searchRes.items) {
+        if (!AUDIENCE_PATIENTS.some(p => p.patient_id === item.patient_id)) {
+          AUDIENCE_PATIENTS.push({
+            patient_id: item.patient_id,
+            name: item.name || ('Patient #' + item.patient_id),
+            suburb: item.suburb || '',
+            email: item.email || '',
+            has_email: Boolean(item.email && item.email.includes('@')),
+            has_consent: true,
+            is_suppressed: false,
+            is_eligible: Boolean(item.email && item.email.includes('@')),
+            included: true,
+          });
+        }
+        EXPLICIT_INCLUDED_IDS.add(item.patient_id);
+        EXCLUDED_PATIENT_IDS.delete(item.patient_id);
+        addedCount++;
+      }
+      input.value = '';
+      statusDiv.textContent = `✓ Added ${addedCount} patient(s) to list.`;
+      renderAudienceTable();
+    } else {
+      statusDiv.textContent = `No patient found matching "${query}".`;
+    }
+  } catch (err) {
+    statusDiv.textContent = 'Failed to lookup patient: ' + (err.detail || err.message || err);
+  }
+}
+
+async function previewPatientsBySuburb() {
+  const suburb = document.getElementById('list-suburb').value.trim();
+  const statusDiv = document.getElementById('list-patient-add-status');
+  if (!suburb) {
+    statusDiv.textContent = 'Please enter a suburb to search.';
+    return;
+  }
+  statusDiv.textContent = 'Loading patients for suburb ' + suburb + '...';
+
+  try {
+    const res = await apiCall('POST', '/api/marketing/lists/preview', {
+      suburb: suburb,
+      patient_ids: Array.from(EXPLICIT_INCLUDED_IDS),
+      excluded_patient_ids: Array.from(EXCLUDED_PATIENT_IDS),
+    });
+
+    if (res && res.patients) {
+      res.patients.forEach(p => {
+        if (!AUDIENCE_PATIENTS.some(existing => existing.patient_id === p.patient_id)) {
+          AUDIENCE_PATIENTS.push({
+            ...p,
+            included: !EXCLUDED_PATIENT_IDS.has(p.patient_id),
+          });
+        }
+      });
+      statusDiv.textContent = `✓ Loaded ${res.candidate_count} candidates (${res.eligible_count} eligible).`;
+      renderAudienceTable();
+    }
+  } catch (err) {
+    statusDiv.textContent = 'Failed to preview patients: ' + (err.detail || err.message || err);
+  }
+}
+
 function submitCreateList(e) {
   e.preventDefault();
   const name = document.getElementById('list-name').value.trim();
@@ -274,6 +545,18 @@ function submitCreateList(e) {
   const filterDefinition = [];
   if (suburb) {
     filterDefinition.push({ filter_type: 'suburb', value: suburb });
+  }
+
+  // Include explicit patient IDs if added
+  const explicitlyIncluded = Array.from(EXPLICIT_INCLUDED_IDS);
+  if (explicitlyIncluded.length > 0) {
+    filterDefinition.push({ filter_type: 'patient_ids', value: explicitlyIncluded });
+  }
+
+  // Include excluded patient IDs if any were removed
+  const excluded = Array.from(EXCLUDED_PATIENT_IDS);
+  if (excluded.length > 0) {
+    filterDefinition.push({ filter_type: 'excluded_patient_ids', value: excluded });
   }
 
   const body = {

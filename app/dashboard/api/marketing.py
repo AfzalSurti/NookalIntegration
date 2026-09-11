@@ -40,6 +40,24 @@ def create_marketing_list(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.post("/lists/preview", response_model=dict)
+def preview_marketing_list(
+    body: dict,
+    user: Annotated[User, Depends(require_permission(Permission.MARKETING_VIEW))],
+    svc: Annotated[MarketingService, Depends(marketing_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
+) -> dict:
+    try:
+        return svc.preview_audience(
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+            body=body,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.get("/campaigns", response_model=list[dict])
 def list_campaigns(
     user: Annotated[User, Depends(require_permission(Permission.MARKETING_VIEW))],
