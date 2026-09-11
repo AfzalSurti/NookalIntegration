@@ -247,3 +247,10 @@ def communication_service(
         config=config,
     )
 
+
+def messaging_service(
+    container: Annotated[DashboardContainer, Depends(get_container)],
+) -> Any:
+    return container.messaging
+
+

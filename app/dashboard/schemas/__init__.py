@@ -222,3 +222,23 @@ class DocumentResolveRequest(BaseModel):
 class ExpenseConfirmRequest(BaseModel):
     category: str = Field(min_length=1, max_length=128)
     fields: dict[str, Any] = Field(default_factory=dict)
+
+
+class SendMessageRequest(BaseModel):
+    channel: str = Field(pattern="^(sms|email|whatsapp)$")
+    recipient_contact: str | None = None
+    template_id: str = "direct_message"
+    message: str | None = None
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class SendMessageResponse(BaseModel):
+    message_id: str
+    status: str
+    channel: str
+    recipient: str
+    rendered_content: str
+    sent_at: str | None = None
+    provider_ref: str | None = None
+    idempotency_key: str
+

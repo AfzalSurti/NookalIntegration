@@ -3,10 +3,20 @@
 {% block topbar_title %}Patient Details{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="flex gap-3" style="align-items: center;">
-    <a href="/patients" class="btn btn-secondary btn-sm">← Back to Patients</a>
-    <h1 class="page-title">{{ patient.display_name or ("Patient #" ~ patient.patient_id) }}</h1>
-    <span class="badge badge-neutral">ID: {{ patient.patient_id }}</span>
+  <div class="flex gap-3" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+    <div class="flex gap-3" style="align-items: center;">
+      <a href="/patients" class="btn btn-secondary btn-sm">← Back to Patients</a>
+      <h1 class="page-title">{{ patient.display_name or ("Patient #" ~ patient.patient_id) }}</h1>
+      <span class="badge badge-neutral">ID: {{ patient.patient_id }}</span>
+    </div>
+    <div class="flex gap-2">
+      <button type="button" class="btn btn-primary btn-sm" onclick="openSendMessageModal('sms')" id="btn-send-sms">
+        💬 Send SMS
+      </button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="openSendMessageModal('email')" id="btn-send-email">
+        ✉ Send Email
+      </button>
+    </div>
   </div>
 </div>
 
@@ -50,21 +60,27 @@
     </div>
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Phone</div>
-      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+      <div style="font-size: 1rem; margin-top: var(--sp-1); display: flex; align-items: center; gap: var(--sp-2);">
         {% if patient.phone %}
           <a href="tel:{{ patient.phone }}"><strong>{{ patient.phone }}</strong></a>
+          <button type="button" class="btn btn-outline btn-xs" onclick="openSendMessageModal('sms')" title="Send SMS to patient" style="padding: 2px 8px; font-size: 0.75rem;">
+            💬 SMS
+          </button>
         {% else %}
-          —
+          <span style="color: var(--text-muted);">—</span>
         {% endif %}
       </div>
     </div>
     <div>
       <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Email</div>
-      <div style="font-size: 1rem; margin-top: var(--sp-1);">
+      <div style="font-size: 1rem; margin-top: var(--sp-1); display: flex; align-items: center; gap: var(--sp-2);">
         {% if patient.email %}
           <a href="mailto:{{ patient.email }}">{{ patient.email }}</a>
+          <button type="button" class="btn btn-outline btn-xs" onclick="openSendMessageModal('email')" title="Send Email to patient" style="padding: 2px 8px; font-size: 0.75rem;">
+            ✉ Email
+          </button>
         {% else %}
-          —
+          <span style="color: var(--text-muted);">—</span>
         {% endif %}
       </div>
     </div>
@@ -466,4 +482,265 @@
   </div>
 </details>
 {% endif %}
+
+<!-- Modal: Send Message to Patient -->
+<div class="modal-backdrop" id="send-patient-message-modal">
+  <div class="modal" style="max-width: 580px;">
+    <div class="modal-header">
+      <div class="modal-title" id="msg-modal-title">Send Message to Patient</div>
+      <button class="modal-close" onclick="closeModal('send-patient-message-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="msg-modal-error" class="warn-banner" style="display: none; margin-bottom: var(--sp-4); color: var(--error); background: var(--error-subtle, #fef2f2); border: 1px solid var(--error-border, #fca5a5); padding: var(--sp-3); border-radius: var(--radius-sm);"></div>
+      <div id="msg-modal-success" class="alert-banner" style="display: none; margin-bottom: var(--sp-4); color: var(--success); background: var(--success-subtle, #f0fdf4); border: 1px solid var(--success-border, #86efac); padding: var(--sp-3); border-radius: var(--radius-sm);"></div>
+
+      <form id="send-message-form" onsubmit="handleSendMessageSubmit(event)">
+        <!-- Channel Selector -->
+        <div class="form-group" style="margin-bottom: var(--sp-3);">
+          <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: var(--sp-1); display: block;">Communication Channel</label>
+          <div class="flex gap-4" style="margin-top: 4px;">
+            <label style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 0.9rem;">
+              <input type="radio" name="msg-channel" value="sms" checked onchange="onChannelChange('sms')">
+              <span>💬 SMS</span>
+            </label>
+            <label style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 0.9rem;">
+              <input type="radio" name="msg-channel" value="email" onchange="onChannelChange('email')">
+              <span>✉ Email</span>
+            </label>
+            <label style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 0.9rem;">
+              <input type="radio" name="msg-channel" value="whatsapp" onchange="onChannelChange('whatsapp')">
+              <span>🟢 WhatsApp</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Recipient Contact -->
+        <div class="form-group" style="margin-bottom: var(--sp-3);">
+          <label class="form-label" for="msg-recipient" style="font-weight: 600; font-size: 0.85rem; margin-bottom: var(--sp-1); display: block;" id="msg-recipient-label">Recipient Phone</label>
+          <input type="text" id="msg-recipient" class="form-control" style="width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.9rem;" required>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;" id="msg-contact-hint">
+            Pre-populated from patient record.
+          </div>
+        </div>
+
+        <!-- Template Selector -->
+        <div class="form-group" style="margin-bottom: var(--sp-3);">
+          <label class="form-label" for="msg-template-select" style="font-weight: 600; font-size: 0.85rem; margin-bottom: var(--sp-1); display: block;">Message Template</label>
+          <select id="msg-template-select" class="form-control" style="width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.9rem;" onchange="onTemplateChange()">
+            <option value="direct_message">Custom Message (Direct Text)</option>
+            <option value="appointment_reminder">Appointment Reminder Template</option>
+            <option value="certificate_sent">Medical Certificate Notice Template</option>
+            <option value="reschedule_confirm_prompt">Reschedule Confirmation Prompt Template</option>
+          </select>
+        </div>
+
+        <!-- Custom Message textarea -->
+        <div class="form-group" id="group-custom-msg" style="margin-bottom: var(--sp-3);">
+          <div class="flex-between" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-1);">
+            <label class="form-label" for="msg-custom-text" style="font-weight: 600; font-size: 0.85rem;">Message Content</label>
+            <span id="char-counter" style="font-size: 0.75rem; color: var(--text-muted);">0 chars</span>
+          </div>
+          <textarea id="msg-custom-text" class="form-control" rows="3" style="width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.9rem;" placeholder="Type your message to the patient here..." oninput="updateCharCount()"></textarea>
+        </div>
+
+        <!-- Template Context Fields (shown only when reminder / reschedule selected) -->
+        <div id="group-template-fields" style="display: none; margin-bottom: var(--sp-3); padding: var(--sp-3); background: var(--bg-surface-secondary, #f8fafc); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+          <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: var(--sp-2);">Template Parameters</div>
+          <div class="grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2);">
+            <div>
+              <label class="form-label" for="msg-ctx-date" style="font-size: 0.75rem; display: block; margin-bottom: 2px;">Date</label>
+              <input type="text" id="msg-ctx-date" class="form-control" placeholder="e.g. 15 Sep 2026" style="width: 100%; padding: 6px 8px; font-size: 0.85rem;">
+            </div>
+            <div>
+              <label class="form-label" for="msg-ctx-time" style="font-size: 0.75rem; display: block; margin-bottom: 2px;">Time</label>
+              <input type="text" id="msg-ctx-time" class="form-control" placeholder="e.g. 10:30 AM" style="width: 100%; padding: 6px 8px; font-size: 0.85rem;">
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Preview -->
+        <div class="form-group" style="margin-bottom: var(--sp-4);">
+          <label class="form-label" style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-bottom: 4px; display: block;">Message Preview</label>
+          <div id="msg-live-preview" style="background: var(--bg, #f1f5f9); padding: 10px 14px; border-radius: var(--radius-sm); font-size: 0.85rem; border: 1px dashed var(--border); color: var(--text); min-height: 40px; word-break: break-word;">
+            Hi {{ patient.first_name or patient.display_name or "Patient" }}, ... — Back to Ease
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: var(--sp-2); padding-top: var(--sp-3); border-top: 1px solid var(--border);">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('send-patient-message-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-send-msg">
+            <span id="btn-send-spinner" class="spinner" style="display: none; width: 14px; height: 14px; margin-right: 6px;"></span>
+            <span id="btn-send-label">Send Message</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PATIENT_DATA = {
+  id: {{ patient.patient_id|tojson }},
+  name: {{ (patient.first_name or patient.display_name or "Patient")|tojson }},
+  phone: {{ (patient.phone or "")|tojson }},
+  email: {{ (patient.email or "")|tojson }}
+};
+
+function openSendMessageModal(preferredChannel) {
+  document.getElementById('msg-modal-error').style.display = 'none';
+  document.getElementById('msg-modal-success').style.display = 'none';
+  
+  const channel = preferredChannel || 'sms';
+  const radio = document.querySelector(`input[name="msg-channel"][value="${channel}"]`);
+  if (radio) radio.checked = true;
+  
+  onChannelChange(channel);
+  onTemplateChange();
+  openModal('send-patient-message-modal');
+}
+
+function onChannelChange(channel) {
+  const recipientInput = document.getElementById('msg-recipient');
+  const recipientLabel = document.getElementById('msg-recipient-label');
+  const sendLabel = document.getElementById('btn-send-label');
+  const hint = document.getElementById('msg-contact-hint');
+  
+  if (channel === 'email') {
+    recipientLabel.textContent = 'Recipient Email';
+    recipientInput.type = 'email';
+    recipientInput.value = PATIENT_DATA.email;
+    recipientInput.placeholder = 'patient@example.com';
+    sendLabel.textContent = 'Send Email';
+    hint.textContent = PATIENT_DATA.email ? 'Pre-populated from patient record.' : 'No email on file — enter an address manually.';
+  } else if (channel === 'whatsapp') {
+    recipientLabel.textContent = 'Recipient WhatsApp Number';
+    recipientInput.type = 'tel';
+    recipientInput.value = PATIENT_DATA.phone;
+    recipientInput.placeholder = '+61400000000';
+    sendLabel.textContent = 'Send WhatsApp';
+    hint.textContent = PATIENT_DATA.phone ? 'Pre-populated from patient record.' : 'No phone on file — enter a number manually.';
+  } else {
+    recipientLabel.textContent = 'Recipient Phone (SMS)';
+    recipientInput.type = 'tel';
+    recipientInput.value = PATIENT_DATA.phone;
+    recipientInput.placeholder = '+61400000000';
+    sendLabel.textContent = 'Send SMS';
+    hint.textContent = PATIENT_DATA.phone ? 'Pre-populated from patient record.' : 'No phone on file — enter a number manually.';
+  }
+  updatePreview();
+}
+
+function onTemplateChange() {
+  const tpl = document.getElementById('msg-template-select').value;
+  const customGroup = document.getElementById('group-custom-msg');
+  const templateFields = document.getElementById('group-template-fields');
+  
+  if (tpl === 'direct_message') {
+    customGroup.style.display = 'block';
+    templateFields.style.display = 'none';
+  } else if (tpl === 'appointment_reminder' || tpl === 'reschedule_confirm_prompt') {
+    customGroup.style.display = 'none';
+    templateFields.style.display = 'block';
+  } else {
+    customGroup.style.display = 'none';
+    templateFields.style.display = 'none';
+  }
+  updatePreview();
+}
+
+function updateCharCount() {
+  const text = document.getElementById('msg-custom-text').value;
+  document.getElementById('char-counter').textContent = text.length + ' chars';
+  updatePreview();
+}
+
+function updatePreview() {
+  const tpl = document.getElementById('msg-template-select').value;
+  const previewDiv = document.getElementById('msg-live-preview');
+  const name = PATIENT_DATA.name;
+  
+  if (tpl === 'direct_message') {
+    const text = document.getElementById('msg-custom-text').value.trim() || '[Your message here]';
+    previewDiv.textContent = `Hi ${name}, ${text} — Back to Ease`;
+  } else if (tpl === 'appointment_reminder') {
+    const d = document.getElementById('msg-ctx-date').value.trim() || '[date]';
+    const t = document.getElementById('msg-ctx-time').value.trim() || '[time]';
+    previewDiv.textContent = `Hi ${name}, this is a reminder of your physiotherapy appointment on ${d} at ${t}. Reply if you need to reschedule. — Back to Ease`;
+  } else if (tpl === 'certificate_sent') {
+    previewDiv.textContent = `Hi ${name}, your certificate has been sent. If you have questions, please call the clinic.`;
+  } else if (tpl === 'reschedule_confirm_prompt') {
+    const d = document.getElementById('msg-ctx-date').value.trim() || '[date]';
+    const t = document.getElementById('msg-ctx-time').value.trim() || '[time]';
+    previewDiv.textContent = `Hi ${name}, would you like to reschedule your appointment for ${d} at ${t}? Reply YES to confirm or call Back to Ease.`;
+  }
+}
+
+document.getElementById('msg-ctx-date')?.addEventListener('input', updatePreview);
+document.getElementById('msg-ctx-time')?.addEventListener('input', updatePreview);
+
+async function handleSendMessageSubmit(e) {
+  e.preventDefault();
+  const errorDiv = document.getElementById('msg-modal-error');
+  const successDiv = document.getElementById('msg-modal-success');
+  const spinner = document.getElementById('btn-send-spinner');
+  const submitBtn = document.getElementById('btn-submit-send-msg');
+  
+  errorDiv.style.display = 'none';
+  successDiv.style.display = 'none';
+  
+  const channel = document.querySelector('input[name="msg-channel"]:checked').value;
+  const recipient = document.getElementById('msg-recipient').value.trim();
+  const templateId = document.getElementById('msg-template-select').value;
+  const customMessage = document.getElementById('msg-custom-text').value.trim();
+  
+  if (!recipient) {
+    errorDiv.textContent = 'Recipient contact information is required.';
+    errorDiv.style.display = 'block';
+    return;
+  }
+  
+  if (templateId === 'direct_message' && !customMessage) {
+    errorDiv.textContent = 'Please enter a message to send.';
+    errorDiv.style.display = 'block';
+    return;
+  }
+  
+  const context = {};
+  if (templateId === 'appointment_reminder' || templateId === 'reschedule_confirm_prompt') {
+    context.date = document.getElementById('msg-ctx-date').value.trim() || 'today';
+    context.time = document.getElementById('msg-ctx-time').value.trim() || '10:00';
+  }
+  
+  spinner.style.display = 'inline-block';
+  submitBtn.disabled = true;
+  
+  try {
+    const payload = {
+      channel: channel,
+      recipient_contact: recipient,
+      template_id: templateId,
+      message: customMessage || null,
+      context: context
+    };
+    
+    const res = await apiCall('POST', `/api/communication/patient/${PATIENT_DATA.id}/send`, payload);
+    
+    successDiv.innerHTML = `<strong>Success!</strong> ${channel.toUpperCase()} message sent: "${res.rendered_content}" (ID: ${res.message_id.slice(0, 8)}...)`;
+    successDiv.style.display = 'block';
+    
+    setTimeout(() => {
+      closeModal('send-patient-message-modal');
+    }, 2200);
+  } catch (err) {
+    errorDiv.textContent = err.detail || err.message || 'Failed to send message. Please try again.';
+    errorDiv.style.display = 'block';
+  } finally {
+    spinner.style.display = 'none';
+    submitBtn.disabled = false;
+  }
+}
+</script>
 {% endblock %}

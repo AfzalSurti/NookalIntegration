@@ -35,6 +35,7 @@ _ROLE_PERMISSIONS: dict[str, set[str]] = {
     "staff": {"transactional"},
     "practitioner": {"transactional"},
     "admin": {"transactional", "bulk", "marketing"},
+    "owner": {"transactional", "bulk", "marketing"},
     "system": {"transactional"},
 }
 
