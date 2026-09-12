@@ -63,4 +63,5 @@ class DashboardContainer:
     communication_config: Any | None = None  # NookalCommunicationConfig for Section 4.6
     session_cookie_name: str = "bte_session"
     csrf_header_name: str = "X-CSRF-Token"
+    template_service: Any | None = None
 

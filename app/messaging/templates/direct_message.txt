@@ -1,1 +1,1 @@
-Hi {name} - THIS IS TEST Back to Ease
+Hi {name}, {message} — Back to Ease

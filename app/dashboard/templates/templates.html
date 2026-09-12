@@ -187,7 +187,7 @@
 <div id="tab-letters" class="tab-pane" style="display: none;">
   <div class="info-banner" style="margin-bottom: var(--sp-4);">
     Clinical letter & medical certificate templates define formal documents sent to referring practitioners, insurance bodies, or employers.
-    Required placeholders must be preserved so generated documents adhere to clinical standards.
+    Templates are fully customizable. Click any token pill below or in the editor to insert placeholders where needed.
   </div>
 
   <div class="template-list">
@@ -222,16 +222,10 @@
 
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sp-2);">
         <div>
-          <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-right: 6px;">Required Placeholders:</span>
-          {% for p in t.required_placeholders %}
-            <span class="placeholder-pill" style="border-color: var(--brand);" onclick="copyToken('{{ p }}')">&#123;{{ p }}&#125;</span>
+          <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-right: 6px;">Supported Placeholders:</span>
+          {% for p in t.all_placeholders %}
+            <span class="placeholder-pill" title="Click to copy" onclick="copyToken('{{ p }}')">&#123;{{ p }}&#125;</span>
           {% endfor %}
-          {% if t.optional_placeholders %}
-            <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-left: 8px; margin-right: 6px;">Optional:</span>
-            {% for p in t.optional_placeholders %}
-              <span class="placeholder-pill" style="background: #f1f5f9; color: var(--text-secondary);" onclick="copyToken('{{ p }}')">&#123;{{ p }}&#125;</span>
-            {% endfor %}
-          {% endif %}
         </div>
         <div style="font-size: 0.75rem; color: var(--text-muted);">
           Document Type: <code>{{ t.document_type }}</code>

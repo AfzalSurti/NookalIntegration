@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
 
 import pytest
 from fastapi import FastAPI
@@ -110,6 +111,32 @@ def build_dashboard_env(
     capturing = CapturingAudit(log=audit_log)
     nookal = seeded_mock_client(audit=capturing)
 
+    from app.dashboard.services.templates import CampaignTemplateStore, TemplateManagementService
+    from app.letters.templates import templates_root
+    from app.shared.exceptions import repo_root
+
+    isolated_msg_dir = tmp_path / "messaging_templates"
+    src_msg_dir = repo_root() / "app" / "messaging" / "templates"
+    if src_msg_dir.exists():
+        shutil.copytree(src_msg_dir, isolated_msg_dir)
+    else:
+        isolated_msg_dir.mkdir(parents=True, exist_ok=True)
+
+    isolated_letters_dir = tmp_path / "letters_templates"
+    src_letters_dir = templates_root()
+    if src_letters_dir.exists():
+        shutil.copytree(src_letters_dir, isolated_letters_dir)
+    else:
+        isolated_letters_dir.mkdir(parents=True, exist_ok=True)
+
+    isolated_mkt_store = CampaignTemplateStore(store_path=tmp_path / "campaign_templates.jsonl")
+
+    template_svc = TemplateManagementService(
+        messaging_dir=isolated_msg_dir,
+        letters_dir=isolated_letters_dir,
+        marketing_store=isolated_mkt_store,
+    )
+
     fake = FakeAdapter("whatsapp")
     messaging = MessagingService(
         adapters={
@@ -117,7 +144,7 @@ def build_dashboard_env(
             "sms": FakeAdapter("sms"),
             "email": FakeAdapter("email"),
         },
-        templates=TemplateStore(),
+        templates=TemplateStore(directory=isolated_msg_dir),
         sent_log=SentLog(directory=tmp_path / "sent", clock=clock),
         audit=capturing,
         clock=clock,
@@ -169,6 +196,7 @@ def build_dashboard_env(
         llm_configured=False,
         nookal_live_configured=False,
         messaging_live_configured=False,
+        template_service=template_svc,
     )
 
     app = create_app(container)

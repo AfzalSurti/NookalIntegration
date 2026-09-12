@@ -36,13 +36,17 @@ messaging:
     email: false
   max_retries: 3
 
-# Section 4.6: Nookal-native SMS + email communication.
-# All appointment SMS/email is handled by Nookal's native automation.
-# Configure campaigns in Nookal: Manage > Communications.
+# Section 4.6: Nookal-native SMS + email communication capabilities.
+# The clinic uses Nookal as the communication provider.
+# All appointment confirmations, reminders, and recalls are delivered natively
+# by Nookal PMS automation (configured in Nookal: Manage > Communications).
+# The Nookal REST API does not provide an ad-hoc direct SMS/Email dispatch endpoint.
 communication:
-  nookal_sms_enabled: true       # Practice has Nookal SMS configured
-  nookal_email_enabled: true     # Practice has Nookal email configured
-  app_reminders_enabled: false   # Defer to Nookal native reminders (prevent duplicates)
+  nookal_native_sms_configured: true      # Practice has Nookal native SMS configured in Nookal PMS
+  nookal_native_email_configured: true    # Practice has Nookal native email configured in Nookal PMS
+  nookal_sms_enabled: true                # Backward-compatible alias: Nookal native SMS is active
+  nookal_email_enabled: true              # Backward-compatible alias: Nookal native email is active
+  app_reminders_enabled: false            # Defer to Nookal native reminders (prevents duplicate sends)
 
 approval:
   store_path: data/working/tasks.jsonl

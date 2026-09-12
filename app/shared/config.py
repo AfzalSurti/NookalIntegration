@@ -53,19 +53,17 @@ class LLMConfig:
 
 @dataclass(frozen=True)
 class MessagingConfig:
+    """Outbound messaging configuration.
+
+    Nookal is the clinic's communication provider for SMS and Email.
+    No third-party SMS or email providers (Twilio, SendGrid, external SMTP) are used.
+    WhatsApp uses the official Meta Cloud API if configured.
+    """
     channels: dict[str, bool]
     max_retries: int
-    whatsapp_token: str
-    whatsapp_phone_number_id: str
-    whatsapp_base_url: str
-    sms_api_key: str
-    sms_sender_id: str
-    sms_base_url: str
-    smtp_host: str
-    smtp_port: int
-    smtp_user: str
-    smtp_password: str
-    smtp_from: str
+    whatsapp_token: str = ""
+    whatsapp_phone_number_id: str = ""
+    whatsapp_base_url: str = "https://graph.facebook.com/v21.0"
 
 
 @dataclass(frozen=True)
@@ -75,6 +73,15 @@ class ApprovalConfig:
 
 @dataclass(frozen=True)
 class CommunicationConfig:
+    """Configuration for Nookal-native communication features (Section 4.6).
+
+    Nookal is the communication provider. All appointment confirmations,
+    reminders, and recalls are handled natively by Nookal PMS automations
+    (configured in Nookal PMS: Manage > Communications).
+    The official Nookal REST API does not provide an ad-hoc direct messaging endpoint.
+    """
+    nookal_native_sms_configured: bool = True
+    nookal_native_email_configured: bool = True
     nookal_sms_enabled: bool = True
     nookal_email_enabled: bool = True
     app_reminders_enabled: bool = False
@@ -201,23 +208,20 @@ def get_settings(
         whatsapp_token=os.environ.get("WHATSAPP_API_TOKEN", ""),
         whatsapp_phone_number_id=os.environ.get("WHATSAPP_PHONE_NUMBER_ID", ""),
         whatsapp_base_url=os.environ.get("WHATSAPP_API_BASE_URL", "https://graph.facebook.com/v21.0"),
-        sms_api_key=os.environ.get("SMS_API_KEY", ""),
-        sms_sender_id=os.environ.get("SMS_SENDER_ID", ""),
-        sms_base_url=os.environ.get("SMS_API_BASE_URL", ""),
-        smtp_host=os.environ.get("SMTP_HOST", ""),
-        smtp_port=int(os.environ.get("SMTP_PORT", "587")),
-        smtp_user=os.environ.get("SMTP_USER", ""),
-        smtp_password=os.environ.get("SMTP_PASSWORD", ""),
-        smtp_from=os.environ.get("SMTP_FROM", ""),
     )
 
     approval = ApprovalConfig(
         store_path=_resolve(home, approval_raw.get("store_path", "data/working/tasks.jsonl")),
     )
 
+    sms_active = bool(comm_raw.get("nookal_native_sms_configured", comm_raw.get("nookal_sms_enabled", True)))
+    email_active = bool(comm_raw.get("nookal_native_email_configured", comm_raw.get("nookal_email_enabled", True)))
+
     communication = CommunicationConfig(
-        nookal_sms_enabled=bool(comm_raw.get("nookal_sms_enabled", True)),
-        nookal_email_enabled=bool(comm_raw.get("nookal_email_enabled", True)),
+        nookal_native_sms_configured=sms_active,
+        nookal_native_email_configured=email_active,
+        nookal_sms_enabled=sms_active,
+        nookal_email_enabled=email_active,
         app_reminders_enabled=bool(comm_raw.get("app_reminders_enabled", False)),
     )
 
