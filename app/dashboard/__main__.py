@@ -101,7 +101,6 @@ def build_offline_container() -> DashboardContainer:
     hardcoded_roles = [
         ("admin", "admin", "admin", "Administrator"),
         ("staff", "staff", "staff", "Clinic Staff"),
-        ("other", "other", "other", "Other User"),
         ("practitioner", "practitioner", "practitioner", "Practitioner User"),
         ("owner", "owner", "owner", "Clinic Owner"),
     ]

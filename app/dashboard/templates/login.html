@@ -4,7 +4,7 @@
 {% block head %}
 <style>
   .login-card {
-    max-width: 440px;
+    max-width: 480px;
     width: 95%;
   }
   .role-options-header {
@@ -17,15 +17,20 @@
   }
   .role-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: var(--sp-2);
     margin-bottom: var(--sp-4);
+  }
+  @media (max-width: 500px) {
+    .role-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
   }
   .role-card {
     background: var(--bg);
     border: 1.5px solid var(--border);
     border-radius: var(--radius-md);
-    padding: var(--sp-3) var(--sp-2);
+    padding: var(--sp-3) var(--sp-1);
     text-align: center;
     cursor: pointer;
     transition: all 0.15s ease;
@@ -42,12 +47,12 @@
     box-shadow: 0 0 0 1px var(--brand);
   }
   .role-card-name {
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     font-weight: 600;
     color: var(--text-primary);
   }
   .role-card-pwd {
-    font-size: 0.7rem;
+    font-size: 0.68rem;
     color: var(--text-muted);
     margin-top: 2px;
     font-family: monospace;
@@ -88,15 +93,19 @@
         <div class="role-card-name">Staff</div>
         <div class="role-card-pwd">pwd: staff</div>
       </div>
-      <div class="role-card" id="card-other" onclick="selectRole('other')">
-        <div class="role-card-name">Other</div>
-        <div class="role-card-pwd">pwd: other</div>
+      <div class="role-card" id="card-practitioner" onclick="selectRole('practitioner')">
+        <div class="role-card-name">Practitioner</div>
+        <div class="role-card-pwd">pwd: practitioner</div>
+      </div>
+      <div class="role-card" id="card-owner" onclick="selectRole('owner')">
+        <div class="role-card-name">Owner</div>
+        <div class="role-card-pwd">pwd: owner</div>
       </div>
     </div>
 
     <div class="role-info-pill">
       <span>ℹ️</span>
-      <span>Password for roles is the role name itself (e.g. <code>admin</code>, <code>staff</code>, <code>other</code>).</span>
+      <span>Password for roles is the role name itself (e.g. <code>admin</code>, <code>staff</code>, <code>practitioner</code>, <code>owner</code>).</span>
     </div>
 
     <form method="post" action="/">
@@ -106,7 +115,8 @@
           <option value="">-- Choose Role Option --</option>
           <option value="admin">Admin (Password: admin)</option>
           <option value="staff">Staff (Password: staff)</option>
-          <option value="other">Other (Password: other)</option>
+          <option value="practitioner">Practitioner (Password: practitioner)</option>
+          <option value="owner">Owner (Password: owner)</option>
         </select>
       </div>
 

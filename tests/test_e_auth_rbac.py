@@ -203,19 +203,21 @@ def test_login_route_post_redirects_to_overview(client: TestClient) -> None:
 def test_login_page_shows_role_options(client: TestClient) -> None:
     resp = client.get("/", follow_redirects=False)
     assert resp.status_code == 200
-    # Verify Admin, Staff, Other options are presented
+    # Verify Admin, Staff, Practitioner, Owner options are presented
     assert "Admin" in resp.text
     assert "Staff" in resp.text
-    assert "Other" in resp.text
+    assert "Practitioner" in resp.text
+    assert "Owner" in resp.text
     assert "pwd: admin" in resp.text or "password: admin" in resp.text.lower()
     assert "pwd: staff" in resp.text or "password: staff" in resp.text.lower()
-    assert "pwd: other" in resp.text or "password: other" in resp.text.lower()
+    assert "pwd: practitioner" in resp.text or "password: practitioner" in resp.text.lower()
+    assert "pwd: owner" in resp.text or "password: owner" in resp.text.lower()
     assert '<select id="role-select"' in resp.text
 
 
 def test_hardcoded_role_passwords_login(client: TestClient) -> None:
     # Test each role logging in with password as the role name itself
-    for role in ("admin", "staff", "other"):
+    for role in ("admin", "staff", "practitioner", "owner"):
         resp = client.post(
             "/",
             data={"username": role, "password": role},
@@ -233,6 +235,39 @@ def test_hardcoded_role_passwords_login(client: TestClient) -> None:
     )
     assert resp_role.status_code == 303
     assert resp_role.headers["location"] == "/overview"
+
+
+def test_production_login_with_hardcoded_role_passwords(tmp_path: Path) -> None:
+    from app.dashboard.production import build_production_container
+    from app.dashboard.app import create_app
+    from tests.test_production_wiring import _make_prod_settings
+
+    settings = _make_prod_settings(tmp_path)
+    container = build_production_container(settings)
+    app = create_app(container)
+    client = TestClient(app)
+
+    for role in ("admin", "staff", "practitioner", "owner"):
+        # Test API login in production
+        resp = client.post(
+            "/api/auth/login",
+            json={"username": role, "password": role},
+        )
+        assert resp.status_code == 200, f"Production API login failed for role {role}: {resp.text}"
+        data = resp.json()
+        assert data["user"]["role"] == role
+        assert data["csrf_token"]
+        assert "bte_session" in resp.cookies
+
+        # Test HTML form login in production
+        form_resp = client.post(
+            "/login",
+            data={"username": role, "password": role},
+            follow_redirects=False,
+        )
+        assert form_resp.status_code == 303, f"Production form login failed for role {role}: {form_resp.text}"
+        assert form_resp.headers["location"] == "/overview"
+        assert "bte_session" in form_resp.cookies
 
 
 def test_other_role_rbac_permissions(client: TestClient, env) -> None:
