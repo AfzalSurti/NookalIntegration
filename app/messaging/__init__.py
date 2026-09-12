@@ -25,13 +25,16 @@ from app.shared.exceptions import (
     IdempotencyConflict,
     KillSwitchActive,
     MessagingError,
+    MessagingUnavailableError,
+    NookalCommunicationUnavailable,
     PermissionDenied,
 )
 from app.shared.kill_switch import assert_allows
 
-MessageStatus = Literal["queued", "sent", "failed", "blocked", "skipped"]
+MessageStatus = Literal["queued", "sent", "failed", "blocked", "skipped", "unavailable"]
 
 _ROLE_PERMISSIONS: dict[str, set[str]] = {
+    "other": set(),
     "staff": {"transactional"},
     "practitioner": {"transactional"},
     "admin": {"transactional", "bulk", "marketing"},
@@ -55,6 +58,12 @@ class OutboundMessage:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @property
+    def error(self) -> str | None:
+        if self.metadata and isinstance(self.metadata, dict):
+            return self.metadata.get("detail") or self.metadata.get("reason")
+        return None
 
 
 class TemplateStore:
@@ -154,16 +163,12 @@ class MessagingService:
     def _default_adapters(self) -> dict[Channel, ChannelAdapter]:
         adapters: dict[Channel, ChannelAdapter] = {
             "whatsapp": StubAdapter("whatsapp"),
-            "sms": StubAdapter("sms"),
-            "email": StubAdapter("email"),
+            "sms": SMSAdapter(self._config),
+            "email": EmailAdapter(self._config),
         }
         flags = self._config.channels or {}
         if flags.get("whatsapp") and self._config.whatsapp_token:
             adapters["whatsapp"] = WhatsAppAdapter(self._config)
-        if flags.get("sms") and self._config.sms_api_key:
-            adapters["sms"] = SMSAdapter(self._config)
-        if flags.get("email") and self._config.smtp_host:
-            adapters["email"] = EmailAdapter(self._config)
         return adapters
 
     def send(
@@ -230,11 +235,16 @@ class MessagingService:
         adapter = self._adapters.get(channel)
         if adapter is None and isinstance(channel, str):
             adapter = self._adapters.get(channel.lower().strip())
-        if adapter is None and channel in ("sms", "email"):
-            adapter = StubAdapter(channel)
-            self._adapters[channel] = adapter
         if adapter is None:
-            raise MessagingError(f"no adapter for channel={channel}")
+            canonical = channel.lower().strip() if isinstance(channel, str) else channel
+            if canonical == "sms":
+                adapter = SMSAdapter(self._config)
+                self._adapters["sms"] = adapter
+            elif canonical == "email":
+                adapter = EmailAdapter(self._config)
+                self._adapters["email"] = adapter
+            else:
+                raise MessagingError(f"no adapter for channel={channel}")
 
         message_id = str(uuid.uuid4())
         try:
@@ -242,6 +252,25 @@ class MessagingService:
                 patient_contact,
                 body,
                 metadata={"template_id": template_id, "idempotency_key": idempotency_key},
+            )
+        except (MessagingUnavailableError, NookalCommunicationUnavailable) as exc:
+            self._audit(
+                actor=self._actor,
+                action="send",
+                target_type="message",
+                target_id=idempotency_key,
+                result="unavailable",
+                metadata={"channel": channel, "error_type": type(exc).__name__, "detail": str(exc)},
+            )
+            return OutboundMessage(
+                id=message_id,
+                channel=channel,
+                patient_id=patient_id,
+                template_id=template_id,
+                rendered_content=body,
+                idempotency_key=idempotency_key,
+                status="unavailable",
+                metadata={"reason": "unavailable", "detail": str(exc), "error_type": type(exc).__name__},
             )
         except Exception as exc:
             self._audit(

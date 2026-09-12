@@ -147,3 +147,108 @@ def test_direct_api_privilege_escalation_blocked(client: TestClient, env) -> Non
         headers=headers,
         json={"action": "cancel", "phone": "+61411110001", "message": "cancel"},
     ).status_code == 403
+
+
+def test_root_is_login_page(client: TestClient) -> None:
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 200
+    assert "Sign in" in resp.text
+    assert '<form method="post" action="/">' in resp.text
+
+
+def test_login_route_accessible(client: TestClient) -> None:
+    resp = client.get("/login", follow_redirects=False)
+    assert resp.status_code == 200
+    assert "Sign in" in resp.text
+
+
+def test_login_form_submission_redirects_to_overview(client: TestClient) -> None:
+    user, password = TEST_USERS["admin"]
+    resp = client.post(
+        "/",
+        data={"username": user.username, "password": password},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/overview"
+    assert "bte_session" in resp.cookies
+
+    # Visiting / while logged in redirects to /overview
+    resp_authed = client.get("/", follow_redirects=False)
+    assert resp_authed.status_code == 303
+    assert resp_authed.headers["location"] == "/overview"
+
+    # Visiting /overview while logged in serves the overview page
+    resp_overview = client.get("/overview", follow_redirects=False)
+    assert resp_overview.status_code == 200
+    assert "Overview" in resp_overview.text
+
+    # Logging out redirects back to /
+    resp_logout = client.get("/logout", follow_redirects=False)
+    assert resp_logout.status_code == 303
+    assert resp_logout.headers["location"] == "/"
+
+
+def test_login_route_post_redirects_to_overview(client: TestClient) -> None:
+    user, password = TEST_USERS["admin"]
+    resp = client.post(
+        "/login",
+        data={"username": user.username, "password": password},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/overview"
+
+
+def test_login_page_shows_role_options(client: TestClient) -> None:
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 200
+    # Verify Admin, Staff, Other options are presented
+    assert "Admin" in resp.text
+    assert "Staff" in resp.text
+    assert "Other" in resp.text
+    assert "pwd: admin" in resp.text or "password: admin" in resp.text.lower()
+    assert "pwd: staff" in resp.text or "password: staff" in resp.text.lower()
+    assert "pwd: other" in resp.text or "password: other" in resp.text.lower()
+    assert '<select id="role-select"' in resp.text
+
+
+def test_hardcoded_role_passwords_login(client: TestClient) -> None:
+    # Test each role logging in with password as the role name itself
+    for role in ("admin", "staff", "other"):
+        resp = client.post(
+            "/",
+            data={"username": role, "password": role},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303, f"Failed for role {role}: {resp.text}"
+        assert resp.headers["location"] == "/overview"
+        assert "bte_session" in resp.cookies
+
+    # Test submitting role directly from dropdown option
+    resp_role = client.post(
+        "/",
+        data={"role": "staff"},
+        follow_redirects=False,
+    )
+    assert resp_role.status_code == 303
+    assert resp_role.headers["location"] == "/overview"
+
+
+def test_other_role_rbac_permissions(client: TestClient, env) -> None:
+    csrf = env.login(client, "other")
+    headers = {"X-CSRF-Token": csrf}
+
+    # Other has basic read permissions for patients and appointments
+    assert client.get("/api/patients/search", headers=headers).status_code == 200
+    assert client.get("/api/appointments", headers=headers).status_code == 200
+
+    # Other does NOT have administrative or workflow permissions
+    assert client.get("/api/audit", headers=headers).status_code == 403
+    assert client.post(
+        "/api/system/kill-switch",
+        headers=headers,
+        json={"active": True},
+    ).status_code == 403
+    assert client.get("/api/referrers/conflicts", headers=headers).status_code == 403
+

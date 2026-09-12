@@ -33,6 +33,9 @@ from app.letters import (
 )
 from app.marketing import FakeEmailAdapter, UnavailableEmailAdapter
 from app.messaging.adapters.fake import FakeAdapter
+from app.messaging.adapters.stub import StubAdapter
+from app.messaging.adapters.sms import SMSAdapter
+from app.messaging.adapters.email import EmailAdapter
 from app.messaging.adapters.whatsapp import WhatsAppAdapter
 from app.nookal_client import HttpNookalClient, MockNookalClient
 from app.shared.config import (
@@ -126,9 +129,12 @@ def test_build_production_container_success(tmp_path: Path) -> None:
     assert isinstance(container.auth_backend, ProductionAuthBackend)
     assert not isinstance(container.auth_backend, MemoryAuthBackend)
 
-    # 6. Messaging has NO fake adapters
+    # 6. Messaging has NO fake or stub adapters and uses Nookal SMS/Email adapters
+    assert isinstance(container.messaging._adapters["sms"], SMSAdapter)
+    assert isinstance(container.messaging._adapters["email"], EmailAdapter)
     for channel, adapter in container.messaging._adapters.items():
         assert not isinstance(adapter, FakeAdapter)
+        assert not isinstance(adapter, StubAdapter)
 
 
 def test_strict_mock_isolation_in_production(tmp_path: Path) -> None:
@@ -267,6 +273,44 @@ def test_production_messaging_unconfigured_fails_safely(tmp_path: Path) -> None:
             caller_role="admin",
         )
     assert "no adapter for channel=whatsapp" in str(exc_info.value)
+
+
+def test_production_sms_and_email_return_unavailable(tmp_path: Path) -> None:
+    settings = _make_prod_settings(tmp_path)
+    auth = ProductionAuthBackend(
+        users=[(User(user_id="u1", username="admin", role="admin"), "Pass123")]
+    )
+    container = build_production_container(settings, auth_backend=auth)
+
+    # Sending SMS in production must report unavailable, never 'sent'
+    out_sms = container.messaging.send(
+        channel="sms",
+        patient_id="p1",
+        patient_contact="+61400000000",
+        template_id="appointment_reminder",
+        context={"name": "Arthur", "date": "10 Sep", "time": "10:00"},
+        idempotency_key="idemp_sms_1",
+        caller_role="admin",
+    )
+    assert out_sms.status == "unavailable"
+    assert out_sms.provider_ref is None
+    assert out_sms.sent_at is None
+    assert "Direct SMS sending is not available" in (out_sms.error or "")
+
+    # Sending Email in production must report unavailable, never 'sent'
+    out_email = container.messaging.send(
+        channel="email",
+        patient_id="p1",
+        patient_contact="arthur@example.com",
+        template_id="certificate_sent",
+        context={"name": "Arthur"},
+        idempotency_key="idemp_email_1",
+        caller_role="admin",
+    )
+    assert out_email.status == "unavailable"
+    assert out_email.provider_ref is None
+    assert out_email.sent_at is None
+    assert "Direct Email sending is not available" in (out_email.error or "")
 
 
 def test_production_filesystem_document_store_and_delivery(tmp_path: Path) -> None:

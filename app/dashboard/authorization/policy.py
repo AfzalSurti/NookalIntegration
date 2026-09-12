@@ -42,7 +42,16 @@ _ADMIN: frozenset[Permission] = _PRACTITIONER | frozenset(
 
 _OWNER: frozenset[Permission] = frozenset(Permission)  # all permissions
 
+_OTHER: frozenset[Permission] = frozenset(
+    {
+        Permission.PATIENT_VIEW,
+        Permission.PATIENT_SEARCH,
+        Permission.APPOINTMENT_VIEW,
+    }
+)
+
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
+    "other": _OTHER,
     "staff": _STAFF,
     "practitioner": _PRACTITIONER,
     "admin": _ADMIN,

@@ -499,6 +499,10 @@
       <div id="msg-modal-success" class="alert-banner" style="display: none; margin-bottom: var(--sp-4); color: var(--success); background: var(--success-subtle, #f0fdf4); border: 1px solid var(--success-border, #86efac); padding: var(--sp-3); border-radius: var(--radius-sm);"></div>
 
       <form id="send-message-form" onsubmit="handleSendMessageSubmit(event)">
+        <!-- Nookal Native Guidance Notice -->
+        <div style="font-size: 0.8rem; margin-bottom: var(--sp-3); padding: 8px 12px; border-radius: var(--radius-sm); background: #f0f9ff; border: 1px solid #bae6fd; color: #0369a1; line-height: 1.4;">
+          ℹ <strong>Nookal Communication Provider:</strong> Direct ad-hoc SMS/Email sending is not available via the official Nookal API. Automated appointment confirmations, reminders, and recalls are handled natively by Nookal in <strong>Manage &gt; Communications</strong>.
+        </div>
         <!-- Channel Selector -->
         <div class="form-group" style="margin-bottom: var(--sp-3);">
           <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: var(--sp-1); display: block;">Communication Channel</label>
@@ -775,12 +779,19 @@ async function handleSendMessageSubmit(e) {
     
     const res = await apiCall('POST', `/api/communication/patient/${PATIENT_DATA.id}/send`, payload);
     
-    successDiv.innerHTML = `<strong>Success!</strong> ${channel.toUpperCase()} message sent: "${res.rendered_content}" (ID: ${res.message_id.slice(0, 8)}...)`;
-    successDiv.style.display = 'block';
-    
-    setTimeout(() => {
-      closeModal('send-patient-message-modal');
-    }, 2200);
+    if (res.status === 'sent') {
+      successDiv.innerHTML = `<strong>Sent:</strong> ${channel.toUpperCase()} message accepted by provider: "${res.rendered_content}" (Ref: ${res.provider_ref || res.message_id.slice(0, 8)})`;
+      successDiv.style.display = 'block';
+      setTimeout(() => {
+        closeModal('send-patient-message-modal');
+      }, 2200);
+    } else if (res.status === 'unavailable') {
+      errorDiv.innerHTML = `<strong>Direct ${channel.toUpperCase()} Sending Unavailable:</strong> Direct ${channel.toUpperCase()} sending is not available through the configured Nookal API. Automated appointment confirmations, reminders, and recalls are handled natively by Nookal in <em>Manage &gt; Communications</em>.`;
+      errorDiv.style.display = 'block';
+    } else {
+      errorDiv.innerHTML = `<strong>Status:</strong> ${res.status}. Message delivery could not be completed.`;
+      errorDiv.style.display = 'block';
+    }
   } catch (err) {
     errorDiv.textContent = err.detail || err.message || 'Failed to send message. Please try again.';
     errorDiv.style.display = 'block';

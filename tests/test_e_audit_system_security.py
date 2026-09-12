@@ -249,5 +249,11 @@ def test_document_review_list(client: TestClient, env) -> None:
 
 
 def test_overview_page_requires_auth(client: TestClient) -> None:
-    resp = client.get("/", follow_redirects=False)
+    resp = client.get("/overview", follow_redirects=False)
     assert resp.status_code == 401
+
+
+def test_login_page_at_root(client: TestClient) -> None:
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 200
+    assert "Sign in" in resp.text

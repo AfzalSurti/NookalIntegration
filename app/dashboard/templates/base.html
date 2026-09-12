@@ -762,7 +762,7 @@
       {% if user %}
       <nav class="sidebar-nav">
         <div class="nav-group-label">Operations</div>
-        <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
+        <a href="/overview" class="nav-link {% if request.url.path == '/overview' %}active{% endif %}">
           <span class="nav-icon">◉</span> Overview
         </a>
         <a href="/patients" class="nav-link {% if '/patients' in request.url.path %}active{% endif %}">

@@ -95,7 +95,7 @@ def test_send_patient_not_found_returns_404(client: TestClient) -> None:
 
 
 def test_send_sms_uppercase_channel_and_adapter_fallback(client: TestClient, env) -> None:
-    # Clear out sms adapter to verify fallback works seamlessly without 'no adapter' error
+    # Clear out sms adapter to verify fallback works seamlessly with Nookal native SMS adapter
     if "sms" in env.container.messaging._adapters:
         del env.container.messaging._adapters["sms"]
 
@@ -111,8 +111,82 @@ def test_send_sms_uppercase_channel_and_adapter_fallback(client: TestClient, env
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert data["status"] == "sent"
+    assert data["status"] == "unavailable"
     assert data["channel"] == "sms"
+    assert "Direct SMS sending is not available through the configured Nookal API" in data["error"]
+    assert data["provider_ref"] is None
+    assert data["sent_at"] is None
+
+
+def test_send_with_nookal_native_adapters_reports_unavailable(client: TestClient, env) -> None:
+    from app.messaging.adapters.sms import SMSAdapter
+    from app.messaging.adapters.email import EmailAdapter
+
+    # Wire native Nookal adapters directly into test messaging service
+    env.container.messaging._adapters["sms"] = SMSAdapter()
+    env.container.messaging._adapters["email"] = EmailAdapter()
+
+    headers = _login(client, role="staff")
+
+    # Direct SMS sending
+    resp_sms = client.post(
+        "/api/communication/patient/pat_1001/send",
+        headers=headers,
+        json={
+            "channel": "sms",
+            "template_id": "direct_message",
+            "message": "Exercise update",
+        },
+    )
+    assert resp_sms.status_code == 200, resp_sms.text
+    data_sms = resp_sms.json()
+    assert data_sms["status"] == "unavailable"
+    assert "Direct SMS sending is not available" in data_sms["error"]
+    assert data_sms["sent_at"] is None
+    assert data_sms["provider_ref"] is None
+
+    # Direct Email sending
+    resp_email = client.post(
+        "/api/communication/patient/pat_1001/send",
+        headers=headers,
+        json={
+            "channel": "email",
+            "template_id": "certificate_sent",
+        },
+    )
+    assert resp_email.status_code == 200, resp_email.text
+    data_email = resp_email.json()
+    assert data_email["status"] == "unavailable"
+    assert "Direct Email sending is not available" in data_email["error"]
+    assert data_email["sent_at"] is None
+    assert data_email["provider_ref"] is None
+
+
+def test_send_blocked_when_patient_suppressed(client: TestClient, env) -> None:
+    from app.marketing.suppression import SuppressionReason
+
+    # Mark pat_1001 as suppressed in marketing suppression store
+    env.container.suppression_store.suppress(
+        patient_id="pat_1001",
+        reason=SuppressionReason.UNSUBSCRIBE,
+        suppressed_by="test",
+        notes="Patient opt-out",
+    )
+
+    headers = _login(client, role="staff")
+    resp = client.post(
+        "/api/communication/patient/pat_1001/send",
+        headers=headers,
+        json={
+            "channel": "sms",
+            "template_id": "direct_message",
+            "message": "Follow up message",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["status"] == "blocked"
+    assert "suppression list" in data["error"].lower()
 
 
 def test_patient_readiness_includes_contact_fields(client: TestClient) -> None:

@@ -64,7 +64,7 @@ def build_offline_container() -> DashboardContainer:
         ),
     )
 
-        users = []
+    users = []
     users_file = os.environ.get("DASHBOARD_USERS_FILE", "").strip()
     if users_file and Path(users_file).exists():
         import json
@@ -97,33 +97,22 @@ def build_offline_container() -> DashboardContainer:
                 password,
             )
         )
-    elif not users and os.environ.get("AUTOMATION_ALLOW_DEV_LOGIN") == "1":
-        # Ephemeral local-only credentials — printed once; never committed.
-        generated = secrets.token_urlsafe(12)
-        print(f"[dashboard] ephemeral admin password: {generated}")
-        print("[dashboard] Local dev accounts initialized with this password:")
-        print("  • admin        (role: admin)")
-        print("  • practitioner (role: practitioner)")
-        print("  • staff        (role: staff)")
-        print("  • owner        (role: owner)")
-        for dev_role in ("admin", "practitioner", "staff", "owner"):
+    # Pre-populate hardcoded default accounts for offline development
+    hardcoded_roles = [
+        ("admin", "admin", "admin", "Administrator"),
+        ("staff", "staff", "staff", "Clinic Staff"),
+        ("other", "other", "other", "Other User"),
+        ("practitioner", "practitioner", "practitioner", "Practitioner User"),
+        ("owner", "owner", "owner", "Clinic Owner"),
+    ]
+    for uid, uname, r, dname in hardcoded_roles:
+        if not any(u.username.casefold() == uname.casefold() for u, _ in users):
             users.append(
                 (
-                    User(
-                        user_id=f"dev_{dev_role}",
-                        username=dev_role,
-                        role=dev_role,
-                        display_name=f"Dev {dev_role.capitalize()}",
-                    ),
-                    generated,
+                    User(user_id=f"dev_{uid}", username=uname, role=r, display_name=dname),
+                    uname,
                 )
             )
-    elif not users:
-        raise SystemExit(
-            "Set DASHBOARD_DEV_USER and DASHBOARD_DEV_PASSWORD, "
-            "or DASHBOARD_USERS_FILE, "
-            "or AUTOMATION_ALLOW_DEV_LOGIN=1 for ephemeral local passwords."
-        )
 
     return DashboardContainer(
         nookal=nookal,

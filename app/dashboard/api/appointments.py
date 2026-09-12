@@ -60,3 +60,22 @@ def appointment_action(
         "data": result.data,
         "error": result.error.to_dict() if result.error else None,
     }
+
+
+@router.get("/{appointment_id}")
+def get_appointment(
+    appointment_id: str,
+    user: Annotated[User, Depends(require_permission(Permission.APPOINTMENT_VIEW))],
+    svc: Annotated[AppointmentService, Depends(appointment_service)],
+    correlation_id: Annotated[str, Depends(get_correlation_id)],
+) -> Any:
+    try:
+        return svc.get_appointment(
+            appointment_id,
+            actor=user.user_id,
+            role=user.role,
+            correlation_id=correlation_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Appointment not found") from exc
+

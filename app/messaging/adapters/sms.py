@@ -2,29 +2,43 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-import httpx
-
 from app.messaging.adapters import Channel, ChannelAdapter
 from app.shared.config import MessagingConfig
-from app.shared.exceptions import MessagingError
+from app.shared.exceptions import NookalCommunicationUnavailable
 
 
 class SMSAdapter(ChannelAdapter):
+    """
+    Nookal-native SMS adapter.
+
+    In the clinic's architecture:
+    - Nookal is the communication provider.
+    - No third-party SMS providers (Twilio, MessageBird, Vonage, AWS SNS) are permitted.
+    - Nookal natively delivers automated appointment confirmations, reminders, and recalls
+      configured in the Nookal PMS Admin UI (Manage > Communications).
+    - The official Nookal API v2 does not expose an ad-hoc direct SMS sending endpoint.
+
+    Attempting direct ad-hoc SMS dispatch raises NookalCommunicationUnavailable with
+    a clear explanation so the dashboard does not falsely report messages as 'Sent'.
+    """
+
     name: Channel = "sms"
 
-    def __init__(self, config: MessagingConfig, client: httpx.Client | None = None) -> None:
+    def __init__(self, config: MessagingConfig | None = None, client: Any = None) -> None:
         self._config = config
-        self._owns = client is None
-        self._http = client or httpx.Client(timeout=30.0)
+        self._client = client
 
     def close(self) -> None:
-        if self._owns:
-            self._http.close()
+        pass
 
     def send(self, to: str, body: str, *, metadata: Mapping[str, Any] | None = None) -> str:
-        # TODO: bind to the clinic's chosen SMS provider once account + sender ID exist.
-        if not self._config.sms_api_key or not self._config.sms_base_url:
-            raise MessagingError("SMS provider not configured")
-        raise NotImplementedError(
-            "SMSAdapter.send: implement against the contracted SMS provider docs"
+        """
+        Direct SMS dispatch.
+
+        Raises NookalCommunicationUnavailable because Nookal does not support
+        ad-hoc direct SMS via API; automated appointment SMS is handled natively by Nookal.
+        """
+        raise NookalCommunicationUnavailable(
+            "Direct SMS sending is not available through the configured Nookal API."
         )
+

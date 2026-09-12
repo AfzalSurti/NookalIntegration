@@ -35,7 +35,6 @@ from app.marketing import (
 from app.messaging import MessagingService, SentLog, TemplateStore
 from app.messaging.adapters.email import EmailAdapter
 from app.messaging.adapters.sms import SMSAdapter
-from app.messaging.adapters.stub import StubAdapter
 from app.messaging.adapters.whatsapp import WhatsAppAdapter
 from app.nookal_client import HttpNookalClient
 from app.orchestration.pending_actions import PendingActionStore
@@ -101,23 +100,18 @@ def build_production_container(
     nookal = HttpNookalClient(config=cfg.nookal, audit=audit)
 
     # Outbound messaging: use real WhatsAppAdapter if credentials exist, otherwise empty
-    # Never inject FakeAdapter in production
-    messaging_adapters = {}
+    # Outbound messaging: Nookal-native communication model
+    # Strictly zero third-party messaging providers (Twilio, SendGrid, etc.)
+    # Never inject FakeAdapter or StubAdapter in production
+    messaging_adapters = {
+        "sms": SMSAdapter(cfg.messaging),
+        "email": EmailAdapter(cfg.messaging),
+    }
     whatsapp_configured = bool(
         cfg.messaging.whatsapp_token and cfg.messaging.whatsapp_phone_number_id
     )
     if whatsapp_configured:
         messaging_adapters["whatsapp"] = WhatsAppAdapter(cfg.messaging)
-
-    if cfg.messaging.sms_api_key and cfg.messaging.sms_base_url:
-        messaging_adapters["sms"] = SMSAdapter(cfg.messaging)
-    else:
-        messaging_adapters["sms"] = StubAdapter("sms")
-
-    if cfg.messaging.smtp_host:
-        messaging_adapters["email"] = EmailAdapter(cfg.messaging)
-    else:
-        messaging_adapters["email"] = StubAdapter("email")
 
     messaging = MessagingService(
         adapters=messaging_adapters,

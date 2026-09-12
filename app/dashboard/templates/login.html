@@ -1,5 +1,72 @@
 {% extends "base.html" %}
 {% block title %}Sign in — Back to Ease{% endblock %}
+
+{% block head %}
+<style>
+  .login-card {
+    max-width: 440px;
+    width: 95%;
+  }
+  .role-options-header {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: var(--sp-2);
+  }
+  .role-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-4);
+  }
+  .role-card {
+    background: var(--bg);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--sp-3) var(--sp-2);
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+  }
+  .role-card:hover {
+    border-color: var(--brand);
+    background: var(--brand-light);
+    transform: translateY(-1px);
+  }
+  .role-card.active {
+    border-color: var(--brand);
+    background: var(--brand-light);
+    box-shadow: 0 0 0 1px var(--brand);
+  }
+  .role-card-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .role-card-pwd {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+    font-family: monospace;
+  }
+  .role-info-pill {
+    background: #eef7f4;
+    border: 1px solid #c3e6dc;
+    color: #1a6350;
+    border-radius: var(--radius-sm);
+    padding: var(--sp-2) var(--sp-3);
+    font-size: 0.78rem;
+    margin-bottom: var(--sp-4);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+</style>
+{% endblock %}
+
 {% block body %}
 <div class="login-layout">
   <div class="login-card">
@@ -10,17 +77,86 @@
     {% if error %}
     <div class="alert alert-error" role="alert">{{ error }}</div>
     {% endif %}
-    <form method="post" action="/login">
+
+    <div class="role-options-header">Select Role Option</div>
+    <div class="role-grid" id="role-grid">
+      <div class="role-card" id="card-admin" onclick="selectRole('admin')">
+        <div class="role-card-name">Admin</div>
+        <div class="role-card-pwd">pwd: admin</div>
+      </div>
+      <div class="role-card" id="card-staff" onclick="selectRole('staff')">
+        <div class="role-card-name">Staff</div>
+        <div class="role-card-pwd">pwd: staff</div>
+      </div>
+      <div class="role-card" id="card-other" onclick="selectRole('other')">
+        <div class="role-card-name">Other</div>
+        <div class="role-card-pwd">pwd: other</div>
+      </div>
+    </div>
+
+    <div class="role-info-pill">
+      <span>ℹ️</span>
+      <span>Password for roles is the role name itself (e.g. <code>admin</code>, <code>staff</code>, <code>other</code>).</span>
+    </div>
+
+    <form method="post" action="/">
+      <div class="form-group">
+        <label for="role-select" class="form-label">Role Option</label>
+        <select id="role-select" name="role" class="form-input" onchange="onRoleDropdownChange(this.value)">
+          <option value="">-- Choose Role Option --</option>
+          <option value="admin">Admin (Password: admin)</option>
+          <option value="staff">Staff (Password: staff)</option>
+          <option value="other">Other (Password: other)</option>
+        </select>
+      </div>
+
       <div class="form-group">
         <label for="username" class="form-label">Username</label>
         <input id="username" name="username" class="form-input" required autocomplete="username" autofocus>
       </div>
+
       <div class="form-group">
         <label for="password" class="form-label">Password</label>
         <input id="password" name="password" type="password" class="form-input" required autocomplete="current-password">
       </div>
-      <button type="submit" class="btn btn-primary" style="width:100%; height:38px; font-size:0.9rem;">Sign in</button>
+
+      <button type="submit" class="btn btn-primary" style="width:100%; height:40px; font-size:0.92rem; margin-top:var(--sp-2);">Sign in</button>
     </form>
   </div>
 </div>
+
+<script>
+  function selectRole(role) {
+    // Update active highlight on role cards
+    document.querySelectorAll('.role-card').forEach(function(el) {
+      el.classList.remove('active');
+    });
+    var activeCard = document.getElementById('card-' + role);
+    if (activeCard) {
+      activeCard.classList.add('active');
+    }
+
+    // Update role select dropdown
+    var roleSelect = document.getElementById('role-select');
+    if (roleSelect) {
+      roleSelect.value = role;
+    }
+
+    // Set username and password to the role name itself
+    var usernameInput = document.getElementById('username');
+    var passwordInput = document.getElementById('password');
+    if (usernameInput) usernameInput.value = role;
+    if (passwordInput) passwordInput.value = role;
+  }
+
+  function onRoleDropdownChange(role) {
+    if (!role) {
+      document.querySelectorAll('.role-card').forEach(function(el) {
+        el.classList.remove('active');
+      });
+      return;
+    }
+    selectRole(role);
+  }
+</script>
 {% endblock %}

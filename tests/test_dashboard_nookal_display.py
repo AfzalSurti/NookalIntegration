@@ -734,9 +734,27 @@ def test_appointment_detail_page_displays_all_nookal_data(client: TestClient, en
     # Verify Raw data viewer
     assert "Show Raw Nookal Data" in html
 
+    # Verify lookup works by numeric ID (e.g. 777) and prefixed ID (appt_777)
+    resp_bare = env.authed(client, "GET", "/appointments/777", role="practitioner")
+    assert resp_bare.status_code == 200
+    assert "Appointment #appt_777" in resp_bare.text or "Appointment #777" in resp_bare.text
+
+    # Verify seed appointment lookup (appt_2001 / 2001)
+    resp_seed_prefixed = env.authed(client, "GET", "/appointments/appt_2001", role="practitioner")
+    assert resp_seed_prefixed.status_code == 200
+    resp_seed_bare = env.authed(client, "GET", "/appointments/2001", role="practitioner")
+    assert resp_seed_bare.status_code == 200
+
+    # Verify JSON API route
+    resp_api = env.authed(client, "GET", "/api/appointments/appt_2001", role="practitioner")
+    assert resp_api.status_code == 200
+    assert resp_api.json()["appointment_id"] in ("appt_2001", "2001")
+
     # 404 for nonexistent appointment
     resp_404 = env.authed(client, "GET", "/appointments/nonexistent_999", role="practitioner")
     assert resp_404.status_code == 404
+    resp_api_404 = env.authed(client, "GET", "/api/appointments/nonexistent_999", role="practitioner")
+    assert resp_api_404.status_code == 404
 
 
 def test_patient_detail_page_displays_all_nookal_demographics_and_invoices(client: TestClient, env) -> None:

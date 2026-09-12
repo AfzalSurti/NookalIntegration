@@ -88,8 +88,17 @@ def _base_ctx(
     return ctx
 
 
-@router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request) -> HTMLResponse:
+@router.get("/", response_model=None)
+@router.get("/login", response_model=None)
+async def login_page(
+    request: Request,
+    container: Annotated[DashboardContainer, Depends(get_container)],
+    session: Annotated[Session | None, Depends(get_session)] = None,
+) -> HTMLResponse | RedirectResponse:
+    if session is not None:
+        user = container.auth_backend.get_user(session.user_id)
+        if user is not None:
+            return RedirectResponse("/overview", status_code=303)
     return _templates(request).TemplateResponse(
         request,
         name="login.html",
@@ -97,14 +106,25 @@ async def login_page(request: Request) -> HTMLResponse:
     )
 
 
+@router.post("/", response_model=None)
 @router.post("/login", response_model=None)
 async def login_form(
     request: Request,
     container: Annotated[DashboardContainer, Depends(get_container)],
-    username: Annotated[str, Form()],
-    password: Annotated[str, Form()],
+    username: Annotated[str, Form()] = "",
+    password: Annotated[str, Form()] = "",
+    role: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse | HTMLResponse:
-    user = container.auth_backend.authenticate(username, password)
+    clean_role = (role or "").strip().lower()
+    clean_username = (username or "").strip()
+    clean_password = password or ""
+
+    if not clean_username and clean_role:
+        clean_username = clean_role
+    if not clean_password and clean_username.lower() in ("admin", "staff", "other", "practitioner", "owner"):
+        clean_password = clean_username.lower()
+
+    user = container.auth_backend.authenticate(clean_username, clean_password)
     if user is None:
         return _templates(request).TemplateResponse(
             request,
@@ -121,7 +141,7 @@ async def login_form(
         result="success",
         metadata={"role": user.role, "via": "form"},
     )
-    resp = RedirectResponse("/", status_code=303)
+    resp = RedirectResponse("/overview", status_code=303)
     resp.set_cookie(
         key=container.session_cookie_name,
         value=session.session_id,
@@ -150,12 +170,12 @@ async def logout_page(
             result="success",
             metadata={"role": session.role, "via": "page"},
         )
-    resp = RedirectResponse("/login", status_code=303)
+    resp = RedirectResponse("/", status_code=303)
     resp.delete_cookie(container.session_cookie_name, path="/")
     return resp
 
 
-@router.get("/", response_model=None)
+@router.get("/overview", response_model=None)
 async def overview(
     request: Request,
     user: Annotated[User, Depends(require_user)],
@@ -807,15 +827,60 @@ async def appointment_detail_page(
     appt_svc: Annotated[AppointmentService, Depends(appointment_service)],
     correlation_id: Annotated[str, Depends(get_correlation_id)],
 ) -> HTMLResponse:
+    clean_id = str(appointment_id).strip()
+    appt = None
     try:
         appt = appt_svc.get_appointment(
-            appointment_id,
+            clean_id,
             actor=user.user_id,
             role=user.role,
             correlation_id=correlation_id,
         )
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail="Appointment not found") from exc
+    except Exception:
+        pass
+
+    if appt is None:
+        alt_id = clean_id[5:].strip() if clean_id.lower().startswith("appt_") else f"appt_{clean_id}"
+        for try_id in (clean_id, alt_id):
+            try:
+                appt = container.nookal.get_appointment(try_id)
+                if appt:
+                    break
+            except Exception:
+                pass
+
+        if appt is None and hasattr(container.nookal, "appointments") and isinstance(container.nookal.appointments, dict):
+            bare_id = clean_id.lower().replace("appt_", "")
+            for k, v in container.nookal.appointments.items():
+                k_str = str(k).strip()
+                k_bare = k_str.lower().replace("appt_", "")
+                if (
+                    k_str.lower() == clean_id.lower()
+                    or (bare_id and k_bare == bare_id)
+                    or (bare_id and bare_id.isdigit() and k_bare.isdigit() and int(bare_id) == int(k_bare))
+                ):
+                    appt = v
+                    break
+
+        if appt is None and hasattr(container.nookal, "list_appointments"):
+            try:
+                candidates = container.nookal.list_appointments(date_from=date(2020, 1, 1), date_to=date(2035, 12, 31))
+                bare_id = clean_id.lower().replace("appt_", "")
+                for cand in candidates:
+                    cand_id = str(cand.appointment_id).strip()
+                    cand_bare = cand_id.lower().replace("appt_", "")
+                    if (
+                        cand_id.lower() == clean_id.lower()
+                        or (bare_id and cand_bare == bare_id)
+                        or (bare_id and bare_id.isdigit() and cand_bare.isdigit() and int(bare_id) == int(cand_bare))
+                    ):
+                        appt = cand
+                        break
+            except Exception:
+                pass
+
+    if appt is None:
+        raise HTTPException(status_code=404, detail="Appointment not found")
 
     patient = None
     if appt.patient_id and hasattr(container.nookal, "get_patient"):

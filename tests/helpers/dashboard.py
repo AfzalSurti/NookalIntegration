@@ -50,6 +50,10 @@ TEST_USERS: dict[str, tuple[User, str]] = {
         User(user_id="u_owner", username="owner", role="owner", display_name="Owner User"),
         "owner-pass-test",
     ),
+    "other": (
+        User(user_id="u_other", username="other", role="other", display_name="Other User"),
+        "other",
+    ),
 }
 
 
@@ -142,6 +146,9 @@ def build_dashboard_env(
     from app.orchestration.referral_sync_service import ReferralAssociationStore
     referral_store = ReferralAssociationStore(tmp_path / "referral_associations.jsonl")
 
+    from app.marketing.store import SuppressionStore
+    suppression_store = SuppressionStore(tmp_path / "suppression.jsonl")
+
     container = DashboardContainer(
         nookal=nookal,
         messaging=messaging,
@@ -155,6 +162,7 @@ def build_dashboard_env(
         document_delivery=doc_delivery,
         conflict_store=conflict_store,
         referral_association_store=referral_store,
+        suppression_store=suppression_store,
         pending_actions=PendingActionStore(clock=clock, ttl_minutes=30),
         kill_switch_path=kill_flag,
         environment="test",

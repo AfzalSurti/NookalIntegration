@@ -43,6 +43,14 @@ class PermissionDenied(MessagingError):
     pass
 
 
+class MessagingUnavailableError(MessagingError):
+    """Raised when an outbound messaging channel has no available direct-send mechanism."""
+
+
+class NookalCommunicationUnavailable(MessagingUnavailableError):
+    """Raised when attempting direct sending via Nookal API which only supports native automation."""
+
+
 class LLMError(AutomationError):
     pass
 

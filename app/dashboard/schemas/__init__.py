@@ -247,6 +247,7 @@ class SendMessageResponse(BaseModel):
     sent_at: str | None = None
     provider_ref: str | None = None
     idempotency_key: str
+    error: str | None = None
 
 
 class DocumentDraftRequest(BaseModel):

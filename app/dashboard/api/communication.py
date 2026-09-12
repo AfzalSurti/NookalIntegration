@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -16,7 +17,13 @@ from app.dashboard.dependencies import (
 )
 from app.dashboard.schemas import SendMessageRequest, SendMessageResponse
 from app.dashboard.services.communication import CommunicationDashboardService
-from app.shared.exceptions import MessagingError, NookalNotFound, PermissionDenied
+from app.shared.exceptions import (
+    MessagingError,
+    MessagingUnavailableError,
+    NookalCommunicationUnavailable,
+    NookalNotFound,
+    PermissionDenied,
+)
 
 router = APIRouter(prefix="/api/communication", tags=["communication"])
 
@@ -113,9 +120,23 @@ def send_patient_message(
                 detail="Message text cannot be empty for direct message.",
             )
         context["message"] = msg_text
-
-    import uuid
     idempotency_key = f"adhoc_{patient_id}_{req_channel}_{uuid.uuid4().hex[:10]}"
+
+    # Suppression check
+    if getattr(container, "suppression_store", None) and hasattr(container.suppression_store, "get"):
+        supp = container.suppression_store.get(patient_id)
+        if supp:
+            return SendMessageResponse(
+                message_id=str(uuid.uuid4()),
+                status="blocked",
+                channel=req_channel,
+                recipient=contact,
+                rendered_content=context.get("message", ""),
+                sent_at=None,
+                provider_ref=None,
+                idempotency_key=idempotency_key,
+                error=f"Patient {patient_id} is on the communication suppression list.",
+            )
 
     try:
         msg = container.messaging.send(
@@ -130,6 +151,18 @@ def send_patient_message(
         )
     except PermissionDenied as exc:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except (NookalCommunicationUnavailable, MessagingUnavailableError) as exc:
+        return SendMessageResponse(
+            message_id=str(uuid.uuid4()),
+            status="unavailable",
+            channel=req_channel,
+            recipient=contact,
+            rendered_content=context.get("message", ""),
+            sent_at=None,
+            provider_ref=None,
+            idempotency_key=idempotency_key,
+            error=str(exc),
+        )
     except MessagingError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
@@ -138,14 +171,22 @@ def send_patient_message(
             detail=f"Messaging provider error: {exc}",
         ) from exc
 
+    detail_err = None
+    if msg.metadata and isinstance(msg.metadata, dict):
+        detail_err = msg.metadata.get("detail") or msg.metadata.get("reason")
+    elif getattr(msg, "error", None):
+        detail_err = str(msg.error)
+
     return SendMessageResponse(
         message_id=msg.id,
         status=msg.status,
         channel=msg.channel,
         recipient=contact,
         rendered_content=msg.rendered_content,
-        sent_at=msg.sent_at,
-        provider_ref=msg.provider_ref,
+        sent_at=msg.sent_at if msg.status == "sent" else None,
+        provider_ref=msg.provider_ref if msg.status == "sent" else None,
         idempotency_key=msg.idempotency_key,
+        error=detail_err,
     )
+
 
