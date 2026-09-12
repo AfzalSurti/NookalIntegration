@@ -116,49 +116,72 @@ def test_service_preview(templates_test_env):
 
 def test_service_update_communication_validation(templates_test_env):
     svc = templates_test_env["svc"]
-    # Missing required {time}
-    with pytest.raises(ValueError, match="missing from new content"):
+
+    # Empty body is rejected
+    with pytest.raises(ValueError, match="cannot be empty"):
         svc.update(
             category="communication",
             template_id="appointment_reminder",
-            body="Hi {name}, your appointment is on {date}.",  # missing {time}
+            body="   ",
             actor="admin",
         )
 
-    # Valid update
+    # Editing direct_message without {message} succeeds cleanly (user's exact workflow)
+    updated_dm = svc.update(
+        category="communication",
+        template_id="direct_message",
+        body="Hi {name} - THIS IS TEST Back to Ease",
+        actor="admin",
+    )
+    assert updated_dm.body == "Hi {name} - THIS IS TEST Back to Ease"
+    msg_dir = templates_test_env["msg_dir"]
+    assert (msg_dir / "direct_message.txt").read_text(encoding="utf-8") == "Hi {name} - THIS IS TEST Back to Ease"
+
+    # Preview works cleanly with edited template
+    preview = svc.preview(
+        category="communication",
+        template_id="direct_message",
+        sample_context={"name": "Jane Doe"},
+    )
+    assert preview["rendered"] == "Hi Jane Doe - THIS IS TEST Back to Ease"
+
+    # Editing appointment_reminder without {time} succeeds cleanly
     updated = svc.update(
         category="communication",
         template_id="appointment_reminder",
-        body="Hello {name}! Reminder for {date} at {time}.",
+        body="Hello {name}! Reminder for your session on {date}.",
         actor="admin",
     )
-    assert updated.body == "Hello {name}! Reminder for {date} at {time}."
-
-    # Verify written to disk
-    msg_dir = templates_test_env["msg_dir"]
+    assert updated.body == "Hello {name}! Reminder for your session on {date}."
     disk_content = (msg_dir / "appointment_reminder.txt").read_text(encoding="utf-8")
-    assert disk_content == "Hello {name}! Reminder for {date} at {time}."
+    assert disk_content == "Hello {name}! Reminder for your session on {date}."
 
 
 def test_service_update_letters_validation(templates_test_env):
     svc = templates_test_env["svc"]
-    # Missing required {body}
-    with pytest.raises(ValueError, match="missing from new content"):
+
+    # Empty body is rejected
+    with pytest.raises(ValueError, match="cannot be empty"):
         svc.update(
             category="letters",
             template_id="progress_letter",
-            body="Only patient: {patient_label}",
+            body="",
             actor="dr_smith",
         )
 
-    # Valid update
+    # Updating letter without requiring all previous placeholders succeeds
     updated = svc.update(
         category="letters",
         template_id="progress_letter",
-        body="Doctor Progress Note\nPatient: {patient_label}\nSummary:\n{body}",
+        body="Only patient: {patient_label}",
         actor="dr_smith",
     )
-    assert "Doctor Progress Note" in updated.body
+    assert updated.body == "Only patient: {patient_label}"
+
+    # Verify written to disk
+    letters_dir = templates_test_env["letters_dir"]
+    disk_content = (letters_dir / "progress_letter" / "body.txt").read_text(encoding="utf-8")
+    assert disk_content == "Only patient: {patient_label}"
 
 
 def test_api_templates_endpoints(client: TestClient, env):
@@ -202,6 +225,20 @@ def test_api_templates_endpoints(client: TestClient, env):
     )
     assert update_resp.status_code == 200, update_resp.text
     assert update_resp.json()["success"] is True
+
+    # Test PUT /api/templates/communication/direct_message without {message} (user's exact workflow)
+    dm_update_resp = env.authed(
+        client,
+        "PUT",
+        "/api/templates/communication/direct_message",
+        role="admin",
+        json={
+            "body": "Hi {name} - THIS IS TEST Back to Ease",
+        },
+    )
+    assert dm_update_resp.status_code == 200, dm_update_resp.text
+    assert dm_update_resp.json()["success"] is True
+    assert dm_update_resp.json()["template"]["body"] == "Hi {name} - THIS IS TEST Back to Ease"
 
 
 def test_templates_page_rendering(client: TestClient, env):

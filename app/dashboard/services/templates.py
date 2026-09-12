@@ -46,35 +46,38 @@ class UnifiedTemplate:
         return asdict(self)
 
 
-# Default metadata & friendly names for messaging templates
 _COMMUNICATION_METADATA: dict[str, dict[str, Any]] = {
     "direct_message": {
         "name": "Direct Patient Message",
         "channel": "sms/email",
-        "description": "Standard direct message sent to an individual patient with their name and custom body text.",
-        "required_placeholders": ["name", "message"],
-        "optional_placeholders": [],
+        "description": "Standard direct message sent to an individual patient with custom wording.",
+        "supported_placeholders": ["name", "message"],
+        "required_placeholders": [],
+        "optional_placeholders": ["name", "message"],
     },
     "appointment_reminder": {
         "name": "Appointment Reminder",
         "channel": "sms",
         "description": "Automated SMS appointment reminder sent before a scheduled clinical session.",
-        "required_placeholders": ["name", "date", "time"],
-        "optional_placeholders": [],
+        "supported_placeholders": ["name", "date", "time"],
+        "required_placeholders": [],
+        "optional_placeholders": ["name", "date", "time"],
     },
     "reschedule_confirm_prompt": {
         "name": "Reschedule Confirmation Request",
         "channel": "sms",
         "description": "SMS sent when an appointment time has changed, asking the patient to confirm or call back.",
-        "required_placeholders": ["name", "date", "time"],
-        "optional_placeholders": [],
+        "supported_placeholders": ["name", "date", "time"],
+        "required_placeholders": [],
+        "optional_placeholders": ["name", "date", "time"],
     },
     "certificate_sent": {
         "name": "Medical Certificate Notice",
         "channel": "sms/email",
         "description": "Notification sent to a patient when their medical certificate has been issued.",
-        "required_placeholders": ["name"],
-        "optional_placeholders": [],
+        "supported_placeholders": ["name"],
+        "required_placeholders": [],
+        "optional_placeholders": ["name"],
     },
 }
 
@@ -343,10 +346,10 @@ class TemplateManagementService:
                 "name": t_id.replace("_", " ").title(),
                 "channel": "sms",
                 "description": f"Direct messaging template: {t_id}",
-                "required_placeholders": _PLACEHOLDER.findall(body),
-                "optional_placeholders": [],
+                "supported_placeholders": _PLACEHOLDER.findall(body),
             })
-            placeholders = sorted(set(_PLACEHOLDER.findall(body)))
+            known = meta.get("supported_placeholders") or meta.get("optional_placeholders") or meta.get("required_placeholders", [])
+            placeholders = sorted(set(known) | set(_PLACEHOLDER.findall(body)))
             mtime = datetime.fromtimestamp(path.stat().st_mtime).isoformat()
             templates.append(
                 UnifiedTemplate(
@@ -355,8 +358,8 @@ class TemplateManagementService:
                     category="communication",
                     channel=meta.get("channel", "sms"),
                     body=body,
-                    required_placeholders=meta.get("required_placeholders", placeholders),
-                    optional_placeholders=meta.get("optional_placeholders", []),
+                    required_placeholders=[],
+                    optional_placeholders=placeholders,
                     all_placeholders=placeholders,
                     description=meta.get("description", ""),
                     updated_at=mtime,
@@ -373,10 +376,10 @@ class TemplateManagementService:
             "name": template_id.replace("_", " ").title(),
             "channel": "sms",
             "description": f"Direct messaging template: {template_id}",
-            "required_placeholders": _PLACEHOLDER.findall(body),
-            "optional_placeholders": [],
+            "supported_placeholders": _PLACEHOLDER.findall(body),
         })
-        placeholders = sorted(set(_PLACEHOLDER.findall(body)))
+        known = meta.get("supported_placeholders") or meta.get("optional_placeholders") or meta.get("required_placeholders", [])
+        placeholders = sorted(set(known) | set(_PLACEHOLDER.findall(body)))
         mtime = datetime.fromtimestamp(path.stat().st_mtime).isoformat()
         return UnifiedTemplate(
             id=template_id,
@@ -384,8 +387,8 @@ class TemplateManagementService:
             category="communication",
             channel=meta.get("channel", "sms"),
             body=body,
-            required_placeholders=meta.get("required_placeholders", placeholders),
-            optional_placeholders=meta.get("optional_placeholders", []),
+            required_placeholders=[],
+            optional_placeholders=placeholders,
             all_placeholders=placeholders,
             description=meta.get("description", ""),
             updated_at=mtime,
@@ -396,12 +399,8 @@ class TemplateManagementService:
         if not path.exists():
             raise MessagingError(f"unknown communication template: {template_id}")
 
-        meta = _COMMUNICATION_METADATA.get(template_id, {})
-        req = meta.get("required_placeholders", [])
-        body_placeholders = set(_PLACEHOLDER.findall(body))
-        for r in req:
-            if r not in body_placeholders:
-                raise ValueError(f"Template requires placeholder '{{{r}}}' which is missing from new content.")
+        if not body or not body.strip():
+            raise ValueError("Template body content cannot be empty.")
 
         path.write_text(body, encoding="utf-8")
         return self._get_communication(template_id)
@@ -421,6 +420,7 @@ class TemplateManagementService:
                         "description": f"Clinical document: {spec.document_type}",
                     })
                     mtime = datetime.fromtimestamp((sub / "body.txt").stat().st_mtime).isoformat()
+                    all_p = sorted(set(spec.required_fields) | set(spec.optional_fields) | set(spec.placeholders()))
                     templates.append(
                         UnifiedTemplate(
                             id=sub.name,
@@ -429,9 +429,9 @@ class TemplateManagementService:
                             channel="pdf_letter",
                             body=spec.body,
                             document_type=spec.document_type,
-                            required_placeholders=list(spec.required_fields),
-                            optional_placeholders=list(spec.optional_fields),
-                            all_placeholders=sorted(spec.placeholders()),
+                            required_placeholders=[],
+                            optional_placeholders=all_p,
+                            all_placeholders=all_p,
                             description=meta.get("description", ""),
                             updated_at=mtime,
                         )
@@ -451,6 +451,7 @@ class TemplateManagementService:
             "description": f"Clinical document: {spec.document_type}",
         })
         mtime = datetime.fromtimestamp((sub / "body.txt").stat().st_mtime).isoformat()
+        all_p = sorted(set(spec.required_fields) | set(spec.optional_fields) | set(spec.placeholders()))
         return UnifiedTemplate(
             id=template_id,
             name=meta.get("name", template_id),
@@ -458,9 +459,9 @@ class TemplateManagementService:
             channel="pdf_letter",
             body=spec.body,
             document_type=spec.document_type,
-            required_placeholders=list(spec.required_fields),
-            optional_placeholders=list(spec.optional_fields),
-            all_placeholders=sorted(spec.placeholders()),
+            required_placeholders=[],
+            optional_placeholders=all_p,
+            all_placeholders=all_p,
             description=meta.get("description", ""),
             updated_at=mtime,
         )
@@ -472,12 +473,8 @@ class TemplateManagementService:
         if not body_file.exists() or not manifest_file.exists():
             raise TemplateError(f"unknown letter template: {template_id}")
 
-        raw = yaml.safe_load(manifest_file.read_text(encoding="utf-8")) or {}
-        required = tuple(raw.get("required_fields") or [])
-        body_placeholders = set(_PLACEHOLDER.findall(body))
-        for r in required:
-            if r not in body_placeholders:
-                raise ValueError(f"Letter template requires placeholder '{{{r}}}' which is missing from new content.")
+        if not body or not body.strip():
+            raise ValueError("Letter template body content cannot be empty.")
 
         body_file.write_text(body, encoding="utf-8")
         return self._get_letters(template_id)
@@ -494,8 +491,8 @@ class TemplateManagementService:
                     channel="campaign",
                     body=t.body,
                     subject=t.subject,
-                    required_placeholders=placeholders,
-                    optional_placeholders=[],
+                    required_placeholders=[],
+                    optional_placeholders=placeholders,
                     all_placeholders=placeholders,
                     description=f"Marketing campaign email: {t.name}",
                     updated_at=t.created_at,
@@ -515,8 +512,8 @@ class TemplateManagementService:
             channel="campaign",
             body=t.body,
             subject=t.subject,
-            required_placeholders=placeholders,
-            optional_placeholders=[],
+            required_placeholders=[],
+            optional_placeholders=placeholders,
             all_placeholders=placeholders,
             description=f"Marketing campaign email: {t.name}",
             updated_at=t.created_at,
@@ -534,6 +531,9 @@ class TemplateManagementService:
         existing = self._marketing_store.get(template_id)
         if not existing:
             raise ValueError(f"unknown marketing template: {template_id}")
+
+        if not body or not body.strip():
+            raise ValueError("Marketing template body content cannot be empty.")
 
         placeholders = frozenset(_PLACEHOLDER.findall(body))
         updated = CampaignTemplate(
